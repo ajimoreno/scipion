@@ -129,9 +129,9 @@ class XmippProtConvertToPseudoAtomsBase(Prot3D):
         sampling = volume.getSamplingRate()
         radius = sampling * self.pseudoAtomRadius.get()
         fnIn = getImageLocation(volume)
+        fnIn = fnIn.split('@')[1]
         if fnIn.endswith(":mrc"):
             fnIn = fnIn[:-4]
-
 
         x, y, z = volume.getOrigin(force=True).getShifts()
         xx, yy, zz = volume.getDim()
