@@ -669,6 +669,7 @@ for p in ['angular_break_symmetry',
           'volume_structure_factor',
           'volume_to_pseudoatoms',
           'volume_to_web',
+          'volume_gain',
 
           'xray_import',
           'xray_psf_create',
