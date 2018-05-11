@@ -29,6 +29,7 @@
 #include <data/multidim_array.h>
 #include <data/xmipp_image.h>
 #include <data/xmipp_program.h>
+#include "fourier_filter.h"
 
 class ProgVolumeGain: public XmippProgram
 {
@@ -43,9 +44,12 @@ public:
     Image<double> V;
     Image<int> mask;
     MultidimArray<double> iu, VRiesz;
-    MultidimArray< std::complex<double> > fftV;
+    MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;
     int NVoxelsOriginalMask;
     Matrix1D<double> freq_fourier;
+    FourierFilter lowPassFilter;
+    FourierTransformer transformer_inv;
+
 
 public:
     /// Read arguments
@@ -62,6 +66,19 @@ public:
 
     /** Run */
     void run();
+
+    /* Mogonogenid amplitud of a volume, given an input volume,
+     * the monogenic amplitud is calculated and low pass filtered at frequency w1*/
+    void amplitudeMonogenicSignal3D(MultidimArray< std::complex<double> > &myfftV,
+    		 MultidimArray<double> &amplitude);
+
+    void calculateGlobalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &histogram,
+    		MultidimArray<double> &cdfGlobal, MultidimArray<int> *pMask, int Nbins, double &step);
+
+    void matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
+    		std::vector<MultidimArray<double> > &cdfsLocal, MultidimArray<double> cdfGlobal,
+			MultidimArray<int> *pMask, int Nbins, double step, int boxSize);
+
 };
 //@}
 #endif
