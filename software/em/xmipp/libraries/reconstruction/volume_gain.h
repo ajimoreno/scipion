@@ -38,6 +38,12 @@ public:
     FileName fn_vol;
     // Input mask
     FileName fn_mask;
+    // Bin number for histogram calculation
+    int nBins;
+    //Size of the box to calculate every histogram
+    int boxSize;
+    //Number of iterations
+    int iter;
 
 public:
     // Input volume
@@ -67,6 +73,9 @@ public:
     /** Run */
     void run();
 
+    /* To calculate the FFT and masking the input volume */
+    void calculateFFT();
+
     /* Mogonogenid amplitud of a volume, given an input volume,
      * the monogenic amplitud is calculated and low pass filtered at frequency w1*/
     void amplitudeMonogenicSignal3D(MultidimArray< std::complex<double> > &myfftV,
@@ -76,8 +85,7 @@ public:
     		MultidimArray<double> &cdfGlobal, MultidimArray<int> *pMask, int Nbins, double &step);
 
     void matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-    		std::vector<MultidimArray<double> > &cdfsLocal, MultidimArray<double> cdfGlobal,
-			MultidimArray<int> *pMask, int Nbins, double step, int boxSize);
+    		MultidimArray<double> cdfGlobal, MultidimArray<int> *pMask, int Nbins, double step, int boxSize);
 
 };
 //@}

@@ -34,6 +34,9 @@ void ProgVolumeGain::readParams()
 
     fn_vol = getParam("-i");
     fn_mask = getParam("--mask");
+    nBins = getIntParam("--nBins");
+    boxSize = getIntParam("--boxSize");
+    iter = getIntParam("--iter");
 
 }
 
@@ -41,27 +44,57 @@ void ProgVolumeGain::readParams()
 void ProgVolumeGain::show() const
 {
     std::cout
-    << "Input file   : " << fn_vol        << std::endl
-	<< "Input mask   : " << fn_mask        << std::endl
+    << "Input file       : " << fn_vol        << std::endl
+	<< "Input mask       : " << fn_mask        << std::endl
+	<< "Number of bins   : " << nBins        << std::endl
+	<< "Box size         : " << boxSize        << std::endl
+	<< "Number of iter   : " << iter        << std::endl
     ;
 }
 
 // usage ===================================================================
 void ProgVolumeGain::defineParams()
 {
-    addParamsLine("   -i <volume>                            : Volume to calculate the gain");
-    addParamsLine("   [--mask <vol_file=\"\">]               : Mask defining the macromolecule");
+    addParamsLine("   -i <volume>                        : Volume to calculate the gain");
+    addParamsLine("   [--mask <vol_file=\"\">]           : Mask defining the macromolecule");
+    addParamsLine("   [--nBins <nBins=100>]              : Number of bins to calculate the histogram");
+    addParamsLine("   [--boxSize <boxSize=5>]           : Size of the box in pixels per coordinate to calculate the histogram");
+    addParamsLine("   [--iter <iter=1>]                  : Number of iterations");
 }
 
 // Produce side information ================================================
 void ProgVolumeGain::produce_side_info()
 {
-	std::cout << "Producing side info..." << std::endl;
 
 	V.read(fn_vol);
     V().setXmippOrigin();
     mask.read(fn_mask);
     mask().setXmippOrigin();
+
+	// Prepare low pass filter
+	lowPassFilter.FilterShape = RAISED_COSINE;
+	lowPassFilter.raised_w = 0.01;
+	lowPassFilter.do_generate_3dmask = false;
+	lowPassFilter.FilterBand = LOWPASS;
+
+	// Prepare mask
+	MultidimArray<int> &pMask=mask();
+	size_t R = (V().xdim)/2.0;
+
+	NVoxelsOriginalMask = 0;
+	FOR_ALL_ELEMENTS_IN_ARRAY3D(pMask)
+	{
+		if (A3D_ELEM(pMask, k, i, j) == 1)
+			NVoxelsOriginalMask++;
+		if (i*i+j*j+k*k > R*R)
+			A3D_ELEM(pMask, k, i, j) = 0;
+	}
+}
+
+
+void ProgVolumeGain::calculateFFT()
+{
+	std::cout << "Calculating FFT..." << std::endl;
 
 	FourierTransformer transformer;
 	MultidimArray<double> &inputVol = V();
@@ -96,30 +129,11 @@ void ProgVolumeGain::produce_side_info()
 		}
 	}
 
-	// Prepare low pass filter
-	lowPassFilter.FilterShape = RAISED_COSINE;
-	lowPassFilter.raised_w = 0.01;
-	lowPassFilter.do_generate_3dmask = false;
-	lowPassFilter.FilterBand = LOWPASS;
-
-	// Prepare mask
-	MultidimArray<int> &pMask=mask();
-	size_t R = (V().xdim)/2.0;
-
-	NVoxelsOriginalMask = 0;
-	FOR_ALL_ELEMENTS_IN_ARRAY3D(pMask)
-	{
-		if (A3D_ELEM(pMask, k, i, j) == 1)
-			NVoxelsOriginalMask++;
-		if (i*i+j*j+k*k > R*R)
-			A3D_ELEM(pMask, k, i, j) = 0;
-	}
-
 	double u;
 	int size_fourier = ZSIZE(fftV);
 	freq_fourier.initZeros(size_fourier);
 
-	int size = ZSIZE(pMask);
+	int size = ZSIZE(mask());
 
 	VEC_ELEM(freq_fourier,0) = 1e-38;
 	for(size_t k=0; k<size_fourier; ++k)
@@ -128,7 +142,6 @@ void ProgVolumeGain::produce_side_info()
 		VEC_ELEM(freq_fourier,k) = u;
 	}
 }
-
 
 
 void ProgVolumeGain::amplitudeMonogenicSignal3D(MultidimArray< std::complex<double> > &myfftV,
@@ -238,6 +251,8 @@ void ProgVolumeGain::amplitudeMonogenicSignal3D(MultidimArray< std::complex<doub
 void ProgVolumeGain::calculateGlobalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &histogram,
 		MultidimArray<double> &cdfGlobal, MultidimArray<int> *pMask, int Nbins, double &step)
 {
+
+	std::cout << "Calculating global histogram... " << std::endl;
 	/*double max = amplitude.computeMax();
 	double min = amplitude.computeMin();
 
@@ -257,6 +272,10 @@ void ProgVolumeGain::calculateGlobalHistogram(MultidimArray<double> amplitude, M
 		if (DIRECT_MULTIDIM_ELEM(*pMask, n)==1)
 		{
 			int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, n)/step);
+			if (position>=Nbins)
+				std::cout << "ERROOOOORRRR " << position << " " << DIRECT_MULTIDIM_ELEM(amplitude, n) << " " << step << std::endl;
+			if (position>=Nbins)
+				position=Nbins-1;
 			DIRECT_MULTIDIM_ELEM(histogram, position)+=1;
 		}
 	}
@@ -272,17 +291,19 @@ void ProgVolumeGain::calculateGlobalHistogram(MultidimArray<double> amplitude, M
 		}
 	}
 
-	//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogram)
-	//	std::cout << "GLOBAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogram,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
+	//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogram){
+		//std::cout << n << " " << DIRECT_MULTIDIM_ELEM(histogram,n) << " " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
+		//std::cout << "GLOBAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogram,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
+	//}
 
 }
 
 
 void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-		std::vector<MultidimArray<double> > &cdfsLocal, MultidimArray<double> cdfGlobal,
-		MultidimArray<int> *pMask, int Nbins, double step, int boxSize)
+		MultidimArray<double> cdfGlobal, MultidimArray<int> *pMask, int Nbins, double step, int boxSize)
 {
 
+	std::cout << "Matching local histograms... " << std::endl;
 	MultidimArray<int> mask_aux;
 	mask_aux.resize((*pMask));
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY((*pMask)){
@@ -301,30 +322,36 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 	int zdim= ZSIZE(amplitude);
 	int total= ZYXSIZE(amplitude);
 	//std::cout << "xdim = " << xdim << " ydim =  " << ydim << " zdim = " << zdim << " total = " << total << std::endl;
+
 	for(size_t k=0; k<zdim; ++k){
 		for(size_t i=0; i<ydim; ++i){
 			for(size_t j=0; j<xdim; ++j){
 				p = j+(i*xdim)+(k*xdim*ydim);
+				//std::cout << "START MATCH INI " << p << std::endl;
 				if (DIRECT_MULTIDIM_ELEM(mask_aux, p)==0)
 					continue;
 
+				//std::cout << "START MATCH " << p << std::endl;
 				for (int kk=-boxSize; kk<=boxSize; kk++){
 					for (int ii=-boxSize; ii<=boxSize; ii++){
 						for (int jj=-boxSize; jj<=boxSize; jj++){
 							pp = p + jj + ii*xdim + kk*xdim*ydim;
-							//std::cout << "nn = " << nn << " n = " << n << " kk = " << kk << " ii = " << ii << " jj = " << jj << " ii*xdim = " << ii*xdim << " kk*xdim*ydim = " << kk*xdim*ydim << std::endl;
+							//std::cout << "pp = " << pp << " p = " << p << " kk = " << kk << " ii = " << ii << " jj = " << jj << " ii*xdim = " << ii*xdim << " kk*xdim*ydim = " << kk*xdim*ydim << std::endl;
 							if(pp<0 || pp>total)
 								continue;
 
 							if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==1){
 								int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, pp)/step);
+								if (position>=Nbins)
+									position=Nbins-1;
 								DIRECT_MULTIDIM_ELEM(histogramAux, position)+=1;
-								DIRECT_MULTIDIM_ELEM(mask_aux, pp)=0;
+								DIRECT_MULTIDIM_ELEM(mask_aux, pp)=2;
 							}
 
 						}
 					}
 				}
+
 				int histSum=histogramAux.sum();
 				if (histSum!=0){
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux){
@@ -335,8 +362,10 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 							DIRECT_MULTIDIM_ELEM(cdfAux, n) = DIRECT_MULTIDIM_ELEM(histogramAux, n) + DIRECT_MULTIDIM_ELEM(cdfAux, n-1);
 					}
 
-					//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux)
-					//	std::cout << "LOCAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << std::endl;
+					//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux){
+						//std::cout << "LOCAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << std::endl;
+						//std::cout << n << " " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << " " << DIRECT_MULTIDIM_ELEM(histNew, n) << std::endl;
+					//}
 
 					//Matching
 					for (int kk=-boxSize; kk<=boxSize; kk++){
@@ -346,43 +375,55 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 								if(pp<0 || pp>total)
 									continue;
 
-								if (DIRECT_MULTIDIM_ELEM(*pMask, pp)==1){
+								if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==2){
+									DIRECT_MULTIDIM_ELEM(mask_aux, pp)=0;
 									int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, pp)/step);
+									if (position==Nbins)
+										position-=1;
 									double probLocal = DIRECT_MULTIDIM_ELEM(cdfAux, position);
 									double diffProb=100000, diffAmp=100000;
 									double newAmplitude;
-									//std::cout << "LOCAL: In " << pp << std::endl;
-									//std::cout << "LOCAL: DIRECT_MULTIDIM_ELEM(amplitude, pp) " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << std::endl;
-									//std::cout << "LOCAL: position " << position << std::endl;
+									//std::cout << "MATCH: In " << pp << std::endl;
+									//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(amplitude, pp) " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << std::endl;
+									//std::cout << "MATCH: position " << position << std::endl;
 									FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(cdfGlobal){
-										//std::cout << "LOCAL: DIRECT_MULTIDIM_ELEM(cdfGlobal,n) " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
-										//std::cout << "LOCAL: probLocal " << probLocal << std::endl;
+										//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(cdfGlobal,n) " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
+										//std::cout << "MATCH: probLocal " << probLocal << std::endl;
 										if( fabs(DIRECT_MULTIDIM_ELEM(cdfGlobal,n)-probLocal)<=diffProb){
 											diffProb = fabs(DIRECT_MULTIDIM_ELEM(cdfGlobal,n)-probLocal);
-											//std::cout << "LOCAL: diffProb " << diffProb << std::endl;
+											//std::cout << "MATCH: diffProb " << diffProb << std::endl;
 											if( fabs(DIRECT_MULTIDIM_ELEM(amplitude, pp)-(step*n))< diffAmp){
 												diffAmp = fabs(DIRECT_MULTIDIM_ELEM(amplitude, pp)-(step*n));
-												//std::cout << "LOCAL: diffAmp " << diffAmp << std::endl;
+												//std::cout << "MATCH: diffAmp " << diffAmp << std::endl;
 												newAmplitude = step*n;
-												//std::cout << "LOCAL: newAmplitude " << newAmplitude << std::endl;
-												//std::cout << "LOCAL: step " << step << std::endl;
-												//std::cout << "LOCAL: n " << n << std::endl;
+												//std::cout << "MATCH: newAmplitude " << newAmplitude << std::endl;
+												//std::cout << "MATCH: step " << step << std::endl;
+												//std::cout << "MATCH: n " << n << std::endl;
 											}
 										}
 									}
-									DIRECT_MULTIDIM_ELEM(gainOut, pp) = newAmplitude/DIRECT_MULTIDIM_ELEM(amplitude,pp);
-									//std::cout << "LOCAL: In " << pp << " position " << position << " step " << step << " prev_amp =  " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << " new_amp= " << newAmplitude << std::endl;
-								}
 
+									DIRECT_MULTIDIM_ELEM(gainOut, pp) = newAmplitude/DIRECT_MULTIDIM_ELEM(amplitude,pp);
+									//std::cout << "MATCH: In " << pp << " position " << position << " step " << step << " prev_amp =  " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << " new_amp= " << newAmplitude << " gain= " << DIRECT_MULTIDIM_ELEM(gainOut, pp) << std::endl;
+
+								}
 
 							}
 						}
 					}
+
+					//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux){
+						//std::cout << "LOCAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << std::endl;
+						//std::cout << n << " " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << " " << DIRECT_MULTIDIM_ELEM(histNew, n) << std::endl;
+					//}
 					//exit(1);
 					//cdfsLocal.push_back(cdfAux);
 				}
+				//std::cout << "FIN MATCH " << p << std::endl;
 				histogramAux.initZeros(Nbins);
 				cdfAux.initZeros(Nbins);
+				//std::cout << "FIN MATCH 2 " << p << std::endl;
+
 			}
 		}
 	}
@@ -392,44 +433,60 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 
 void ProgVolumeGain::run()
 {
-	MultidimArray<double> amplitude;
-	MultidimArray<double> gainOut;
-	int Nbins = 20;
-	int boxSize = 20;
+
+	MultidimArray<double> amplitude, gainOut, histogramGlobal, cdfGlobal;
+	MultidimArray<int> *pMask;
+
+	std::cout << "nBins " << nBins << std::endl;
+	std::cout << "boxSize " << boxSize << std::endl;
 
     produce_side_info();
-    amplitudeMonogenicSignal3D(fftV, amplitude);
-    Image<double> saveImg;
-	saveImg = amplitude;
-	saveImg.write("./amplitudeMono.vol");
-	saveImg.clear();
+    pMask = &(mask());
 
-	Image<int> saveMask;
-	saveMask = mask();
-	saveMask.write("./mask.vol");
-	saveMask.clear();
+    for (int i=0; i<iter; i++){
+    	std::cout << "Iter " << i << std::endl;
 
-	MultidimArray<double> histogramGlobal, cdfGlobal;
-	histogramGlobal.initZeros(Nbins);
-	cdfGlobal.initZeros(Nbins);
-	MultidimArray<int> *pMask = &(mask());
-	double step;
+		calculateFFT();
+		amplitudeMonogenicSignal3D(fftV, amplitude);
+		Image<double> saveImg;
+		FileName name;
+		name = formatString("./amplitudeMono%i.vol", i);
+		saveImg = amplitude;
+		saveImg.write(name);
+		//saveImg.clear();
 
-	calculateGlobalHistogram(amplitude, histogramGlobal, cdfGlobal, pMask, Nbins, step);
+		Image<int> saveMask;
+		name = formatString("./mask%i.vol", i);
+		saveMask = mask();
+		saveMask.write(name);
+		saveMask.clear();
 
-	std::vector<MultidimArray<double> > cdfsLocal;
-	gainOut.initZeros(amplitude);
-	matchingLocalHistogram(amplitude, gainOut, cdfsLocal, cdfGlobal, pMask, Nbins, step, boxSize);
+		histogramGlobal.initZeros(nBins);
+		cdfGlobal.initZeros(nBins);
+		double step;
 
-	saveImg = gainOut;
-	saveImg.write("./gainOut.vol");
-	saveImg.clear();
+		calculateGlobalHistogram(amplitude, histogramGlobal, cdfGlobal, pMask, nBins, step);
 
-	//Multiply volume and gain
-	V() *= gainOut;
-	saveImg = V();
-	saveImg.write("./outputVol.vol");
-	saveImg.clear();
+		gainOut.initZeros(amplitude);
+		matchingLocalHistogram(amplitude, gainOut, cdfGlobal, pMask, nBins, step, boxSize);
+
+		name = formatString("./gainOut%i.vol", i);
+		saveImg = gainOut;
+		saveImg.write(name);
+		//saveImg.clear();
+
+		//IDEAS: filtrar gain, bien calculada??
+
+		//Multiply volume and gain
+		V() *= gainOut;
+		//V() = gainOut;
+
+		name = formatString("./outputVol%i.vol", i);
+		saveImg = V();
+		saveImg.write(name);
+		saveImg.clear();
+
+    }
 
 
 	/*/AJ to check if the histogramsLocal contains all the information of the volume
