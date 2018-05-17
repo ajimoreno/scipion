@@ -235,13 +235,13 @@ void ProgVolumeGain::amplitudeMonogenicSignal3D(MultidimArray< std::complex<doub
 	}
 
 	/*// Low pass filter the monogenic amplitude
-	double freq = 1.0;
+	double freq = 1.5;
 	double aux_frequency;
 	int fourier_idx;
-	DIGFREQ2FFT_IDX(freq, ZSIZE(VRiesz), fourier_idx);
-	FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(VRiesz), aux_frequency);
+	DIGFREQ2FFT_IDX(freq, ZSIZE(amplitude), fourier_idx);
+	FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(amplitude), aux_frequency);
+	std::cout << "Low pass filtering at " << freq << " " << aux_frequency << std::endl;
 	freq = aux_frequency;
-
 	lowPassFilter.w1 = freq;
 	amplitude.setXmippOrigin();
 	lowPassFilter.applyMaskSpace(amplitude);*/
@@ -266,14 +266,15 @@ void ProgVolumeGain::calculateGlobalHistogram(MultidimArray<double> amplitude, M
 	double min = amplitude.computeMin();
 	step = (max-min)/Nbins;
 	std::cout << "Max = " << max << " Min = " << min << std::endl;
+	//AJ CUIDADO: que salen aqui valores negativos en el min a veces
 
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
 	{
 		if (DIRECT_MULTIDIM_ELEM(*pMask, n)==1)
 		{
 			int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, n)/step);
-			if (position>=Nbins)
-				std::cout << "ERROOOOORRRR " << position << " " << DIRECT_MULTIDIM_ELEM(amplitude, n) << " " << step << std::endl;
+			//if (position>=Nbins)
+			//	std::cout << "ERROOOOORRRR " << position << " " << DIRECT_MULTIDIM_ELEM(amplitude, n) << " " << step << std::endl;
 			if (position>=Nbins)
 				position=Nbins-1;
 			DIRECT_MULTIDIM_ELEM(histogram, position)+=1;
@@ -446,6 +447,8 @@ void ProgVolumeGain::run()
     for (int i=0; i<iter; i++){
     	std::cout << "Iter " << i << std::endl;
 
+    	//AJ DUDA: normalizar valores de amplitud??
+
 		calculateFFT();
 		amplitudeMonogenicSignal3D(fftV, amplitude);
 		Image<double> saveImg;
@@ -477,9 +480,30 @@ void ProgVolumeGain::run()
 
 		//IDEAS: filtrar gain, bien calculada??
 
+		/*// Low pass filter the gain
+		double freq = 1.5;
+		double aux_frequency;
+		int fourier_idx;
+		DIGFREQ2FFT_IDX(freq, ZSIZE(gainOut), fourier_idx);
+		FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(gainOut), aux_frequency);
+		std::cout << "Low pass filtering at " << freq << " " << aux_frequency << std::endl;
+		freq = aux_frequency;
+		lowPassFilter.w1 = freq;
+		gainOut.setXmippOrigin();
+		lowPassFilter.applyMaskSpace(gainOut);
+
+		name = formatString("./gainOutFilter%i.vol", i);
+		saveImg = gainOut;
+		saveImg.write(name);*/
+
 		//Multiply volume and gain
 		V() *= gainOut;
-		//V() = gainOut;
+
+		/*//Low pass filtering the amplitude values
+		double alpha=0.8;
+		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(gainOut){
+			DIRECT_MULTIDIM_ELEM(V(),n) = alpha*DIRECT_MULTIDIM_ELEM(V(),n) + (1-alpha)*DIRECT_MULTIDIM_ELEM(gainOut,n);
+		}*/
 
 		name = formatString("./outputVol%i.vol", i);
 		saveImg = V();
