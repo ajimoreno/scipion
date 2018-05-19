@@ -50,6 +50,7 @@ void ProgFilter::defineParams()
     RetinexFilter::defineParams(this);
     DenoiseTVFilter::defineParams(this);
     SoftNegativeFilter::defineParams(this);
+    MonogenicFilter::defineParams(this);
 
     //examples
     addExampleLine("Filter a volume using a mask =volumeMask.vol= to remove bad pixels:", false);
@@ -104,6 +105,8 @@ void ProgFilter::readParams()
         filter = new DenoiseTVFilter();
     else if (checkParam("--softnegative"))
         filter = new SoftNegativeFilter();
+    else if (checkParam("--monogenic"))
+        filter = new MonogenicFilter();
     else
         REPORT_ERROR(ERR_ARG_MISSING, "You should provide some filter");
     //Read params
