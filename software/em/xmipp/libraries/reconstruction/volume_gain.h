@@ -35,15 +35,19 @@ class ProgVolumeGain: public XmippProgram
 {
 public:
     /// Input volume
-    FileName fn_vol;
+    FileName fn_vol, fn_out;
     // Input mask
     FileName fn_mask;
-    // Bin number for histogram calculation
-    int nBins;
     //Size of the box to calculate every histogram
     int boxSize;
+    //Histogram matching by frequency bands or with the complete frequencies
+    bool bandpass;
+    //Number of bandpass filters
+    int Nbands;
     //Number of iterations
     int iter;
+    //To allow superposed voxel in histogram calculation
+    bool superposed;
 
 public:
     // Input volume
@@ -71,6 +75,7 @@ public:
     void produce_side_info();
 
     /** Run */
+    void run_before();
     void run();
 
     /* To calculate the FFT and masking the input volume */
@@ -86,6 +91,11 @@ public:
 
     void matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
     		MultidimArray<double> cdfGlobal, MultidimArray<int> *pMask, int Nbins, double step, int boxSize);
+
+    void matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
+    		std::vector< double > cdfGlobal, MultidimArray<int> *pMask, int boxSize);
+
+    void processing (MultidimArray<double> &V, MultidimArray<int> *pMask);
 
 };
 //@}

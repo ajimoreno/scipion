@@ -34,9 +34,15 @@ void ProgVolumeGain::readParams()
 
     fn_vol = getParam("-i");
     fn_mask = getParam("--mask");
-    nBins = getIntParam("--nBins");
     boxSize = getIntParam("--boxSize");
+    bandpass = checkParam("--bandpass");
+    Nbands = getIntParam("--bandpass");
     iter = getIntParam("--iter");
+    superposed = checkParam("--superposed");
+    if(checkParam("-o"))
+    	fn_out = getParam("-o");
+    else
+    	fn_out="./outputVol.vol";
 
 }
 
@@ -44,11 +50,10 @@ void ProgVolumeGain::readParams()
 void ProgVolumeGain::show() const
 {
     std::cout
-    << "Input file       : " << fn_vol        << std::endl
-	<< "Input mask       : " << fn_mask        << std::endl
-	<< "Number of bins   : " << nBins        << std::endl
-	<< "Box size         : " << boxSize        << std::endl
-	<< "Number of iter   : " << iter        << std::endl
+    << "Input file            : " << fn_vol        << std::endl
+	<< "Input mask            : " << fn_mask        << std::endl
+	<< "Box size              : " << boxSize        << std::endl
+	<< "Number of iterations  : " << iter        << std::endl
     ;
 }
 
@@ -56,10 +61,12 @@ void ProgVolumeGain::show() const
 void ProgVolumeGain::defineParams()
 {
     addParamsLine("   -i <volume>                        : Volume to calculate the gain");
-    addParamsLine("   [--mask <vol_file=\"\">]           : Mask defining the macromolecule");
-    addParamsLine("   [--nBins <nBins=100>]              : Number of bins to calculate the histogram");
-    addParamsLine("   [--boxSize <boxSize=5>]           : Size of the box in pixels per coordinate to calculate the histogram");
+    addParamsLine("   [-o <output=\"\">]                 : Output volume filename");
+    addParamsLine("   [--mask <mask=\"\">]               : Mask defining the macromolecule");
+    addParamsLine("   [--boxSize <boxSize=5>]            : Size of the box in pixels per coordinate to calculate the histogram");
+    addParamsLine("   [--bandpass <Nbands=5>]            : Carry out the matching in the whole frequency range or by bands. The integer value wiil be the number of band pass filter to apply");
     addParamsLine("   [--iter <iter=1>]                  : Number of iterations");
+    addParamsLine("   [--superposed]                     : To allow superposed voxels in the histogram matching calculation");
 }
 
 // Produce side information ================================================
@@ -234,17 +241,17 @@ void ProgVolumeGain::amplitudeMonogenicSignal3D(MultidimArray< std::complex<doub
 		DIRECT_MULTIDIM_ELEM(amplitude,n)=sqrt(DIRECT_MULTIDIM_ELEM(amplitude,n));
 	}
 
-	/*// Low pass filter the monogenic amplitude
-	double freq = 1.5;
-	double aux_frequency;
-	int fourier_idx;
-	DIGFREQ2FFT_IDX(freq, ZSIZE(amplitude), fourier_idx);
-	FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(amplitude), aux_frequency);
-	std::cout << "Low pass filtering at " << freq << " " << aux_frequency << std::endl;
-	freq = aux_frequency;
-	lowPassFilter.w1 = freq;
-	amplitude.setXmippOrigin();
-	lowPassFilter.applyMaskSpace(amplitude);*/
+//	// Low pass filter the monogenic amplitude
+//	double freq = 1.5;
+//	double aux_frequency;
+//	int fourier_idx;
+//	DIGFREQ2FFT_IDX(freq, ZSIZE(amplitude), fourier_idx);
+//	FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(amplitude), aux_frequency);
+//	std::cout << "Low pass filtering at " << freq << " " << aux_frequency << std::endl;
+//	freq = aux_frequency;
+//	lowPassFilter.w1 = freq;
+//	amplitude.setXmippOrigin();
+//	lowPassFilter.applyMaskSpace(amplitude);
 
 }
 
@@ -432,11 +439,142 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 }
 
 
-void ProgVolumeGain::run()
+
+void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
+		std::vector< double > globalAmplitudes, MultidimArray<int> *pMask, int boxSize)
+{
+
+	std::cout << "Matching local histograms... " << std::endl;
+	MultidimArray<int> mask_aux;
+	mask_aux.resize((*pMask));
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY((*pMask)){
+		DIRECT_MULTIDIM_ELEM(mask_aux, n) = DIRECT_MULTIDIM_ELEM(*pMask, n);
+	}
+
+	long p=0;
+	long pp;
+
+	int xdim= XSIZE(amplitude);
+	int ydim= YSIZE(amplitude);
+	int zdim= ZSIZE(amplitude);
+	int total= ZYXSIZE(amplitude);
+
+	//Calculate sort vector of local amplitudes values to obtain the cdf
+	std::vector< double > localAmplitudes;
+
+	//To allow re-visiting voxels
+	MultidimArray<double> voxelCount;
+	if(superposed){
+		voxelCount.initZeros(amplitude);
+	}
+
+	for(size_t k=0; k<zdim; ++k){
+		for(size_t i=0; i<ydim; ++i){
+			for(size_t j=0; j<xdim; ++j){
+				p = j+(i*xdim)+(k*xdim*ydim);
+				if (DIRECT_MULTIDIM_ELEM(mask_aux, p)==0)
+					continue;
+
+				for (int kk=-boxSize; kk<=boxSize; kk++){
+					for (int ii=-boxSize; ii<=boxSize; ii++){
+						for (int jj=-boxSize; jj<=boxSize; jj++){
+							pp = p + jj + ii*xdim + kk*xdim*ydim;
+
+							if(pp<0 || pp>total)
+								continue;
+
+							if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==1){
+								localAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(amplitude, pp));
+								DIRECT_MULTIDIM_ELEM(mask_aux, pp)=2;
+							}
+
+						}
+					}
+				}
+
+				if (localAmplitudes.size()!=0){
+
+					std::sort(localAmplitudes.begin(), localAmplitudes.end());
+
+					//Matching
+					for (int kk=-boxSize; kk<=boxSize; kk++){
+						for (int ii=-boxSize; ii<=boxSize; ii++){
+							for (int jj=-boxSize; jj<=boxSize; jj++){
+								pp = p + jj + ii*xdim + kk*xdim*ydim;
+								if(pp<0 || pp>total)
+									continue;
+
+								if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==2){
+									if(superposed)
+										DIRECT_MULTIDIM_ELEM(mask_aux, pp)=1;
+									else
+										DIRECT_MULTIDIM_ELEM(mask_aux, pp)=0;
+									double valueLocal = DIRECT_MULTIDIM_ELEM(amplitude, pp);
+									int position;
+									for (int a=0; a<localAmplitudes.size(); a++){
+										//std::cout << "MATCH: valueLocal " << valueLocal << " " << localAmplitudes[a] << std::endl;
+										if (localAmplitudes[a]>valueLocal){
+											position=a-1;
+											break;
+										}
+									}
+									double probLocal = (double)position/(double)localAmplitudes.size();
+									double newAmplitude;
+									//std::cout << "MATCH: In " << pp << std::endl;
+									//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(amplitude, pp) " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << std::endl;
+									//std::cout << "MATCH: probLocal " << probLocal << std::endl;
+
+									int lenGlobal= globalAmplitudes.size();
+									//std::cout << "MATCH: lenGlobal " << lenGlobal << std::endl;
+
+									int posGlobal = (int)(probLocal*lenGlobal);
+									//std::cout << "MATCH: posGlobal " << posGlobal << std::endl;
+
+									if (posGlobal>=lenGlobal)
+										posGlobal=lenGlobal-1;
+									newAmplitude = globalAmplitudes[posGlobal];
+
+									//std::cout << "MATCH: probGlobal " << (double)posGlobal/(double)lenGlobal << " " << (double)(posGlobal-1)/(double)lenGlobal << " " << (double)(posGlobal+1)/(double)lenGlobal << std::endl;
+									//std::cout << "MATCH: newAmplitude " << newAmplitude << " " << globalAmplitudes[posGlobal-1] << " " << globalAmplitudes[posGlobal+1] << std::endl;
+
+									if(superposed){
+										DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
+										DIRECT_MULTIDIM_ELEM(voxelCount, pp) += 1;
+									}else{
+										DIRECT_MULTIDIM_ELEM(gainOut, pp) = newAmplitude;
+									}
+								}
+
+
+							}
+						}
+					}
+
+				}
+				localAmplitudes.clear();
+
+			}
+		}
+	}
+
+	if(superposed){
+		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(gainOut){
+			if (DIRECT_MULTIDIM_ELEM(voxelCount, n)!=0)
+				DIRECT_MULTIDIM_ELEM(gainOut, n) = DIRECT_MULTIDIM_ELEM(gainOut, n)/DIRECT_MULTIDIM_ELEM(voxelCount, n);
+		}
+	}
+
+
+}
+
+void ProgVolumeGain::run_before()
 {
 
 	MultidimArray<double> amplitude, gainOut, histogramGlobal, cdfGlobal;
 	MultidimArray<int> *pMask;
+
+	int nBins=100;
+	int iter=5;
 
 	std::cout << "nBins " << nBins << std::endl;
 	std::cout << "boxSize " << boxSize << std::endl;
@@ -528,6 +666,153 @@ void ProgVolumeGain::run()
 		std::cout << "Histogram total in " << n << " = " << total(n) << std::endl;
 	*/
 
+}
+
+void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *pMask)
+{
+
+	MultidimArray<double> gainOut;
+	std::vector< double > globalAmplitudes;
+
+	//Calculate sort vector of global amplitudes values to obtain the cdf
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V){
+		if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+		{
+			globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
+		}
+	}
+	std::sort(globalAmplitudes.begin(), globalAmplitudes.end());
+
+	//Matching histograms
+	gainOut.initZeros(V);
+	matchingLocalHistogram_new(V, gainOut, globalAmplitudes, pMask, boxSize);
+
+	V=gainOut;
+
+	//End
+	globalAmplitudes.clear();
+
+}
+
+
+void ProgVolumeGain::run()
+{
+
+	MultidimArray<int> *pMask;
+	produce_side_info();
+	pMask = &(mask());
+
+
+	Image<double> saveImg;
+	FileName name;
+
+	if(bandpass){
+
+		std::cout << "Selected band pass filtering with " << Nbands << " bands" << std::endl;
+
+		MultidimArray<double> Vout;
+		Vout.initZeros(V());
+
+		FourierFilter filter;
+		filter.raised_w=0.02;
+		filter.FilterShape=RAISED_COSINE;
+		filter.FilterBand=BANDPASS;
+
+		//MultidimArray<std::complex<double> > fftV;
+		//FourierTransformer transformer;
+		//transformer.FourierTransform(V(),fftV,true);
+
+		int filter_num = Nbands;
+		double step = 1.0/filter_num;
+		//double min;
+
+		for(int j=0; j<iter; j++){
+			std::cout << "Iteration " << j << std::endl;
+
+			for (int i=0;i<filter_num;i++)
+			{
+				if (i>0 && j==0){
+					V.read(fn_vol);
+					V().setXmippOrigin();
+				}else if(j>0){
+					name = formatString("./outputVol_iter%i.vol",j-1);
+					V.read(name);
+					V().setXmippOrigin();
+				}
+
+				filter.w1=step*i;
+				filter.w2=(filter.w1)+step;
+				std::cout << "Band pass filtering " << filter.w1 << " " << filter.w2 << " " << step << std::endl;
+				//filter.applyMaskFourierSpace(V(), fftV);
+				filter.applyMaskSpace(V());
+
+				name = formatString("./filterVol%i_iter%i.vol", i, j);
+				saveImg = V();
+				saveImg.write(name);
+				saveImg.clear();
+
+				processing (V(), pMask);
+
+				//To avoid negative amplitude values, ES CORRECTO¿?¿?
+				//min = -(V().computeMin());
+
+				if (i==0){
+					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
+						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+							DIRECT_MULTIDIM_ELEM(Vout, n) = DIRECT_MULTIDIM_ELEM(V(), n); //+min;
+					}
+				}else{
+					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
+						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+							DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(V(), n); //+min;
+					}
+				}
+
+				name = formatString("./filterVolProcess%i_iter%i.vol", i, j);
+				saveImg = Vout;
+				saveImg.write(name);
+				saveImg.clear();
+
+			}
+			//transformer.inverseFourierTransform();
+
+			name = formatString("./outputVol_iter%i.vol",j);
+			saveImg = Vout;
+			saveImg.write(name);
+			saveImg.clear();
+
+		}
+
+		saveImg = Vout;
+		saveImg.write(fn_out);
+		saveImg.clear();
+
+
+	}else{
+
+		std::cout << "Selected the whole frequency range" << std::endl;
+
+		for (int j=0; j<iter; j++){
+			std::cout << "Iteration " << j << std::endl;
+
+			processing (V(), pMask);
+
+			//To avoid negative amplitude values, ES CORRECTO¿?¿?
+			//double min = -(V().computeMin());
+			//V()+=min;
+
+			name = formatString("./outputVol_iter%i.vol", j);
+			saveImg = V();
+			saveImg.write(name);
+			saveImg.clear();
+
+		}
+
+		saveImg = V();
+		saveImg.write(fn_out);
+		saveImg.clear();
+
+	}
 
 
 }
