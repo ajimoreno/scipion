@@ -55,7 +55,7 @@ public:
 
 public:
     // Input volume
-    Image<double> V, monoRes;
+    Image<double> V, monoRes, Vini;
     Image<int> mask;
     MultidimArray<double> iu, VRiesz;
     MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;

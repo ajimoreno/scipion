@@ -81,6 +81,8 @@ void ProgVolumeGain::produce_side_info()
 
 	V.read(fn_vol);
     V().setXmippOrigin();
+	Vini.read(fn_vol);
+    Vini().setXmippOrigin();
     mask.read(fn_mask);
     mask().setXmippOrigin();
     if (mono){
@@ -442,6 +444,35 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 
 }
 
+int myBinarySearch(std::vector< double > amplitudes, double value){
+
+	int posi;
+	int ini=0;
+	int fin=amplitudes.size()-1;
+	int aux=0;
+	int pos=-1;
+
+	while(pos==-1){
+		posi = ((fin-ini+1)/2)+aux;
+		if (amplitudes[posi]<=value){
+			if(amplitudes[posi+1]>value){
+				pos=posi;
+				break;
+			}
+			ini=posi+1;
+			aux=posi;
+		}else{
+			if(amplitudes[posi-1]<=value){
+				pos=posi-1;
+				break;
+			}
+			fin=posi-1;
+		}
+		std::cout << "My binary search " << posi << " " << ini << " " << fin << " " << amplitudes[posi-1] << " " << amplitudes[posi] << " " << amplitudes[posi+1] << " " << value << std::endl;
+	}
+	return pos;
+
+}
 
 
 void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
@@ -525,6 +556,9 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 											break;
 										}
 									}
+									std::cout << "MATCH 1: " << position << " " << std::endl;
+									int posi = myBinarySearch(localAmplitudes, valueLocal);
+									std::cout << "MATCH 2: " << posi << std::endl;
 									double probLocal = (double)position/(double)localAmplitudes.size();
 									double newAmplitude;
 									//std::cout << "MATCH: In " << pp << std::endl;
@@ -573,6 +607,9 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 
 
 }
+
+
+
 
 void ProgVolumeGain::run_before()
 {
@@ -785,7 +822,7 @@ void ProgVolumeGain::run()
 				}
 				transformer_inv.inverseFourierTransform(fftVaux, V());
 
-//				name = formatString("./filterVol%i_iter%i_new.vol", i, j);
+//				name = formatString("./filterVol%i_iter%i_50.vol", i, j);
 //				saveImg = V();
 //				saveImg.write(name);
 //				saveImg.clear();
@@ -805,7 +842,7 @@ void ProgVolumeGain::run()
 					}
 				}
 
-//				name = formatString("./filterVolProcess%i_iter%i_mono.vol", i, j);
+//				name = formatString("./filterVolProcess%i_iter%i_50.vol", i, j);
 //				saveImg = V();
 //				saveImg.write(name);
 //				saveImg.clear();
@@ -817,6 +854,11 @@ void ProgVolumeGain::run()
 			saveImg.write(name);
 			saveImg.clear();
 
+		}
+
+		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Vout){
+			if (DIRECT_MULTIDIM_ELEM(mask(), n)==0)
+				DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(Vini(), n);
 		}
 
 		saveImg = Vout;
@@ -839,6 +881,11 @@ void ProgVolumeGain::run()
 			saveImg.write(name);
 			saveImg.clear();
 
+		}
+
+		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
+			if (DIRECT_MULTIDIM_ELEM(mask(), n)==0)
+				DIRECT_MULTIDIM_ELEM(V(), n) += DIRECT_MULTIDIM_ELEM(Vini(), n);
 		}
 
 		saveImg = V();
