@@ -34,8 +34,8 @@
 class ProgVolumeGain: public XmippProgram
 {
 public:
-    /// Input volume
-    FileName fn_vol, fn_out;
+    /// Input, monores, and output volume
+    FileName fn_vol, fn_mono, fn_out;
     // Input mask
     FileName fn_mask;
     //Size of the box to calculate every histogram
@@ -48,16 +48,19 @@ public:
     int iter;
     //To allow superposed voxel in histogram calculation
     bool superposed;
+    //Sampling rate
+    double sampling;
+    //To allow monores input
+    bool mono;
 
 public:
     // Input volume
-    Image<double> V;
+    Image<double> V, monoRes;
     Image<int> mask;
     MultidimArray<double> iu, VRiesz;
     MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;
     int NVoxelsOriginalMask;
     Matrix1D<double> freq_fourier;
-    FourierFilter lowPassFilter;
     FourierTransformer transformer_inv;
 
 
@@ -93,9 +96,9 @@ public:
     		MultidimArray<double> cdfGlobal, MultidimArray<int> *pMask, int Nbins, double step, int boxSize);
 
     void matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-    		std::vector< double > cdfGlobal, MultidimArray<int> *pMask, int boxSize);
+    		std::vector< double > cdfGlobal, MultidimArray<int> *pMask, int boxSize, double freq);
 
-    void processing (MultidimArray<double> &V, MultidimArray<int> *pMask);
+    void processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq);
 
 };
 //@}

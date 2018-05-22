@@ -33,7 +33,11 @@ void ProgVolumeGain::readParams()
 {
 
     fn_vol = getParam("-i");
+    mono = checkParam("-mono");
+    if (mono)
+    	fn_mono = getParam("-mono");
     fn_mask = getParam("--mask");
+    sampling = getDoubleParam("--sampling");
     boxSize = getIntParam("--boxSize");
     bandpass = checkParam("--bandpass");
     Nbands = getIntParam("--bandpass");
@@ -60,8 +64,10 @@ void ProgVolumeGain::show() const
 // usage ===================================================================
 void ProgVolumeGain::defineParams()
 {
-    addParamsLine("   -i <volume>                        : Volume to calculate the gain");
+    addParamsLine("   -i <volume>                        : Volume to match the amplitudes");
+    addParamsLine("   [-mono <monoResVolume>]            : MonoRes volume with the resolution in every voxel");
     addParamsLine("   [-o <output=\"\">]                 : Output volume filename");
+	addParamsLine("   [--sampling <s=1>]                 : Sampling rate (A/px)");
     addParamsLine("   [--mask <mask=\"\">]               : Mask defining the macromolecule");
     addParamsLine("   [--boxSize <boxSize=5>]            : Size of the box in pixels per coordinate to calculate the histogram");
     addParamsLine("   [--bandpass <Nbands=5>]            : Carry out the matching in the whole frequency range or by bands. The integer value wiil be the number of band pass filter to apply");
@@ -77,12 +83,10 @@ void ProgVolumeGain::produce_side_info()
     V().setXmippOrigin();
     mask.read(fn_mask);
     mask().setXmippOrigin();
-
-	// Prepare low pass filter
-	lowPassFilter.FilterShape = RAISED_COSINE;
-	lowPassFilter.raised_w = 0.01;
-	lowPassFilter.do_generate_3dmask = false;
-	lowPassFilter.FilterBand = LOWPASS;
+    if (mono){
+    	monoRes.read(fn_mono);
+    	monoRes().setXmippOrigin();
+    }
 
 	// Prepare mask
 	MultidimArray<int> &pMask=mask();
@@ -115,17 +119,17 @@ void ProgVolumeGain::calculateFFT()
 	long n=0;
 	for(size_t k=0; k<ZSIZE(fftV); ++k)
 	{
-		FFT_IDX2DIGFREQ(k,ZSIZE(inputVol),uz);
+		FFT_IDX2DIGFREQ(k,ZSIZE(fftV),uz);
 		uz2=uz*uz;
 
 		for(size_t i=0; i<YSIZE(fftV); ++i)
 		{
-			FFT_IDX2DIGFREQ(i,YSIZE(inputVol),uy);
+			FFT_IDX2DIGFREQ(i,YSIZE(fftV),uy);
 			uz2y2=uz2+uy*uy;
 
 			for(size_t j=0; j<XSIZE(fftV); ++j)
 			{
-				FFT_IDX2DIGFREQ(j,XSIZE(inputVol),ux);
+				FFT_IDX2DIGFREQ(j,XSIZE(fftV),ux);
 				u2=uz2y2+ux*ux;
 				if ((k != 0) || (i != 0) || (j != 0))
 					DIRECT_MULTIDIM_ELEM(iu,n) = 1.0/sqrt(u2);
@@ -441,7 +445,7 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 
 
 void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-		std::vector< double > globalAmplitudes, MultidimArray<int> *pMask, int boxSize)
+		std::vector< double > globalAmplitudes, MultidimArray<int> *pMask, int boxSize, double freq)
 {
 
 	std::cout << "Matching local histograms... " << std::endl;
@@ -458,6 +462,7 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 	int ydim= YSIZE(amplitude);
 	int zdim= ZSIZE(amplitude);
 	int total= ZYXSIZE(amplitude);
+	int lenGlobal= globalAmplitudes.size();
 
 	//Calculate sort vector of local amplitudes values to obtain the cdf
 	std::vector< double > localAmplitudes;
@@ -484,8 +489,10 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 								continue;
 
 							if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==1){
-								localAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(amplitude, pp));
-								DIRECT_MULTIDIM_ELEM(mask_aux, pp)=2;
+								if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), pp)) > freq)){
+									localAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(amplitude, pp));
+									DIRECT_MULTIDIM_ELEM(mask_aux, pp)=2;
+								}
 							}
 
 						}
@@ -524,7 +531,7 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 									//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(amplitude, pp) " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << std::endl;
 									//std::cout << "MATCH: probLocal " << probLocal << std::endl;
 
-									int lenGlobal= globalAmplitudes.size();
+
 									//std::cout << "MATCH: lenGlobal " << lenGlobal << std::endl;
 
 									int posGlobal = (int)(probLocal*lenGlobal);
@@ -585,7 +592,6 @@ void ProgVolumeGain::run_before()
     for (int i=0; i<iter; i++){
     	std::cout << "Iter " << i << std::endl;
 
-    	//AJ DUDA: normalizar valores de amplitud??
 
 		calculateFFT();
 		amplitudeMonogenicSignal3D(fftV, amplitude);
@@ -668,24 +674,28 @@ void ProgVolumeGain::run_before()
 
 }
 
-void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *pMask)
+void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq)
 {
 
 	MultidimArray<double> gainOut;
 	std::vector< double > globalAmplitudes;
+	double max = V.computeMax();
+	double min = V.computeMin();
+	std::cout << "Max = " << max << " Min = " << min << std::endl;
 
 	//Calculate sort vector of global amplitudes values to obtain the cdf
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V){
 		if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
 		{
-			globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
+			if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n)) > freq))
+				globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
 		}
 	}
 	std::sort(globalAmplitudes.begin(), globalAmplitudes.end());
 
 	//Matching histograms
 	gainOut.initZeros(V);
-	matchingLocalHistogram_new(V, gainOut, globalAmplitudes, pMask, boxSize);
+	matchingLocalHistogram_new(V, gainOut, globalAmplitudes, pMask, boxSize, freq);
 
 	V=gainOut;
 
@@ -705,6 +715,7 @@ void ProgVolumeGain::run()
 
 	Image<double> saveImg;
 	FileName name;
+	FileName nameRoot = fn_out.getRoot();
 
 	if(bandpass){
 
@@ -713,70 +724,95 @@ void ProgVolumeGain::run()
 		MultidimArray<double> Vout;
 		Vout.initZeros(V());
 
-		FourierFilter filter;
-		filter.raised_w=0.02;
-		filter.FilterShape=RAISED_COSINE;
-		filter.FilterBand=BANDPASS;
-
-		//MultidimArray<std::complex<double> > fftV;
-		//FourierTransformer transformer;
-		//transformer.FourierTransform(V(),fftV,true);
+		MultidimArray<std::complex<double> > fftV, fftVaux;
+		FourierTransformer transformer, transformer_inv;
+		transformer.FourierTransform(V(),fftV);
 
 		int filter_num = Nbands;
-		double step = 1.0/filter_num;
-		//double min;
+		double step = 0.5/filter_num;
 
 		for(int j=0; j<iter; j++){
 			std::cout << "Iteration " << j << std::endl;
 
 			for (int i=0;i<filter_num;i++)
 			{
-				if (i>0 && j==0){
-					V.read(fn_vol);
-					V().setXmippOrigin();
-				}else if(j>0){
-					name = formatString("./outputVol_iter%i.vol",j-1);
+				//if (i>0 && j==0){ //Primera iteracion, bandas de freq mayores que la primera
+				//	V.read(fn_vol);
+				//	V().setXmippOrigin();
+				//}else if(j>0){ //Iteraciones mayor que 1, todas las bandas de freq
+				if(j>0 && i==0){ //Iteraciones mayor que 1, primera banda de freq, rehacer la fft con el volumen de salida de la iteracion anterior
+					//name = formatString("./outputVol_iter%i_new.vol",j-1);
+					name.compose(nameRoot, j, "vol");
 					V.read(name);
 					V().setXmippOrigin();
+					transformer.FourierTransform(V(),fftV);
 				}
 
-				filter.w1=step*i;
-				filter.w2=(filter.w1)+step;
-				std::cout << "Band pass filtering " << filter.w1 << " " << filter.w2 << " " << step << std::endl;
-				//filter.applyMaskFourierSpace(V(), fftV);
-				filter.applyMaskSpace(V());
+				fftVaux.initZeros(fftV);
+				double w1=step*i;
+				double w2=w1+step;
+				double w12=w1*w1;
+				double w22=w2*w2;
+				std::cout << "Band pass filtering " << w1 << " " << w2 << " " << step << std::endl;
+				double uz, uy, ux, uz2, u2, uz2y2, freqI;
+				long n=0;
+				for(size_t kk=0; kk<ZSIZE(fftV); ++kk)
+				{
+					FFT_IDX2DIGFREQ(kk,ZSIZE(fftV),uz);
+					uz2=uz*uz;
 
-				name = formatString("./filterVol%i_iter%i.vol", i, j);
-				saveImg = V();
-				saveImg.write(name);
-				saveImg.clear();
+					for(size_t ii=0; ii<YSIZE(fftV); ++ii)
+					{
+						FFT_IDX2DIGFREQ(ii,YSIZE(fftV),uy);
+						uz2y2=uz2+uy*uy;
 
-				processing (V(), pMask);
+						for(size_t jj=0; jj<XSIZE(fftV); ++jj)
+						{
+							FFT_IDX2DIGFREQ(jj,XSIZE(fftV),ux);
+							u2=uz2y2+ux*ux;
+							//if ((kk != 0) || (ii != 0) || (jj != 0))
+							//	freqI = sqrt(u2);
+							//else
+							//	freqI = 1e38;
 
-				//To avoid negative amplitude values, ES CORRECTO¿?¿?
-				//min = -(V().computeMin());
+							if(u2>=w12 && u2<w22){
+								DIRECT_MULTIDIM_ELEM(fftVaux,n) = DIRECT_MULTIDIM_ELEM(fftV,n);
+							}
+
+							n++;
+						}
+					}
+				}
+				transformer_inv.inverseFourierTransform(fftVaux, V());
+
+//				name = formatString("./filterVol%i_iter%i_new.vol", i, j);
+//				saveImg = V();
+//				saveImg.write(name);
+//				saveImg.clear();
+
+				//Calling to processing function
+				processing(V(), pMask, w1);
 
 				if (i==0){
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
 						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
-							DIRECT_MULTIDIM_ELEM(Vout, n) = DIRECT_MULTIDIM_ELEM(V(), n); //+min;
+							DIRECT_MULTIDIM_ELEM(Vout, n) = DIRECT_MULTIDIM_ELEM(V(), n);
 					}
 				}else{
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
 						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
-							DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(V(), n); //+min;
+							DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(V(), n);
 					}
 				}
 
-				name = formatString("./filterVolProcess%i_iter%i.vol", i, j);
-				saveImg = Vout;
-				saveImg.write(name);
-				saveImg.clear();
+//				name = formatString("./filterVolProcess%i_iter%i_mono.vol", i, j);
+//				saveImg = V();
+//				saveImg.write(name);
+//				saveImg.clear();
 
 			}
-			//transformer.inverseFourierTransform();
 
-			name = formatString("./outputVol_iter%i.vol",j);
+			name.compose(nameRoot, j+1, "vol");
 			saveImg = Vout;
 			saveImg.write(name);
 			saveImg.clear();
@@ -795,13 +831,10 @@ void ProgVolumeGain::run()
 		for (int j=0; j<iter; j++){
 			std::cout << "Iteration " << j << std::endl;
 
-			processing (V(), pMask);
+			processing(V(), pMask, 1.0);
 
-			//To avoid negative amplitude values, ES CORRECTO¿?¿?
-			//double min = -(V().computeMin());
-			//V()+=min;
-
-			name = formatString("./outputVol_iter%i.vol", j);
+			//name = formatString("./outputVol_iter%i.vol", j);
+			name.compose(nameRoot, j+1, "vol");
 			saveImg = V();
 			saveImg.write(name);
 			saveImg.clear();
