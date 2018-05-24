@@ -452,24 +452,39 @@ int myBinarySearch(std::vector< double > amplitudes, double value){
 	int aux=0;
 	int pos=-1;
 
-	while(pos==-1){
-		posi = ((fin-ini+1)/2)+aux;
-		if (amplitudes[posi]<=value){
-			if(amplitudes[posi+1]>value){
-				pos=posi;
-				break;
+	if(amplitudes.size()>2){
+		while(pos==-1){
+			posi = ((fin-ini+1)/2)+aux;
+			if (amplitudes[posi]<=value){
+				if(amplitudes[posi+1]>value){
+					pos=posi;
+					break;
+				}else if(((fin-1)==ini || fin==ini) && fin==(amplitudes.size()-1)){
+					pos=posi+1;
+					break;
+				}
+				ini=posi+1;
+				aux=posi;
+			}else{
+				if(amplitudes[posi-1]<=value){
+					pos=posi-1;
+					break;
+				}
+				fin=posi-1;
 			}
-			ini=posi+1;
-			aux=posi;
-		}else{
-			if(amplitudes[posi-1]<=value){
-				pos=posi-1;
-				break;
-			}
-			fin=posi-1;
+			//std::cout << "My binary search " << amplitudes.size() << " " << posi << " " << ini << " " << fin << " " << amplitudes[posi-1] << " " << amplitudes[posi] << " " << amplitudes[posi+1] << " " << value << std::endl;
 		}
-		std::cout << "My binary search " << posi << " " << ini << " " << fin << " " << amplitudes[posi-1] << " " << amplitudes[posi] << " " << amplitudes[posi+1] << " " << value << std::endl;
 	}
+	else if(amplitudes.size()==1){
+		pos=0;
+	}
+	else if(amplitudes.size()==2){
+		pos=0;
+		if(amplitudes[1]<=value){
+			pos=1;
+		}
+	}
+	//std::cout << "My binary search " << amplitudes.size() << " " << posi << " " << ini << " " << fin << " " << amplitudes[posi-1] << " " << amplitudes[posi] << " " << amplitudes[posi+1] << " " << value << std::endl;
 	return pos;
 
 }
@@ -548,35 +563,32 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 									else
 										DIRECT_MULTIDIM_ELEM(mask_aux, pp)=0;
 									double valueLocal = DIRECT_MULTIDIM_ELEM(amplitude, pp);
-									int position;
+									/*int position=-1;
 									for (int a=0; a<localAmplitudes.size(); a++){
-										//std::cout << "MATCH: valueLocal " << valueLocal << " " << localAmplitudes[a] << std::endl;
 										if (localAmplitudes[a]>valueLocal){
 											position=a-1;
 											break;
 										}
 									}
-									std::cout << "MATCH 1: " << position << " " << std::endl;
+									if(position==-1)
+										position=localAmplitudes.size()-1;
+									std::cout << "Normal search: " << valueLocal << " " << localAmplitudes[position] << " " << localAmplitudes[position+1] << std::endl;
 									int posi = myBinarySearch(localAmplitudes, valueLocal);
-									std::cout << "MATCH 2: " << posi << std::endl;
+									if(posi!=position){
+										std::cout << "ERRORRRRR: " << posi << " " << position << std::endl;
+										exit(0);
+									}else{
+										std::cout << "MATCH: " << posi << " " << position << std::endl;
+									}
+									std::cout << "---------------------------------------------------------" << std::endl;*/
+									int position = myBinarySearch(localAmplitudes, valueLocal);
 									double probLocal = (double)position/(double)localAmplitudes.size();
 									double newAmplitude;
-									//std::cout << "MATCH: In " << pp << std::endl;
-									//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(amplitude, pp) " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << std::endl;
-									//std::cout << "MATCH: probLocal " << probLocal << std::endl;
-
-
-									//std::cout << "MATCH: lenGlobal " << lenGlobal << std::endl;
-
 									int posGlobal = (int)(probLocal*lenGlobal);
-									//std::cout << "MATCH: posGlobal " << posGlobal << std::endl;
 
 									if (posGlobal>=lenGlobal)
 										posGlobal=lenGlobal-1;
 									newAmplitude = globalAmplitudes[posGlobal];
-
-									//std::cout << "MATCH: probGlobal " << (double)posGlobal/(double)lenGlobal << " " << (double)(posGlobal-1)/(double)lenGlobal << " " << (double)(posGlobal+1)/(double)lenGlobal << std::endl;
-									//std::cout << "MATCH: newAmplitude " << newAmplitude << " " << globalAmplitudes[posGlobal-1] << " " << globalAmplitudes[posGlobal+1] << std::endl;
 
 									if(superposed){
 										DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
