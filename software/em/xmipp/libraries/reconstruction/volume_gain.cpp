@@ -88,6 +88,7 @@ void ProgVolumeGain::produce_side_info()
     if (mono){
     	monoRes.read(fn_mono);
     	monoRes().setXmippOrigin();
+    	Vweight.initZeros(monoRes());
     }
 
 	// Prepare mask
@@ -104,345 +105,6 @@ void ProgVolumeGain::produce_side_info()
 	}
 }
 
-
-void ProgVolumeGain::calculateFFT()
-{
-	std::cout << "Calculating FFT..." << std::endl;
-
-	FourierTransformer transformer;
-	MultidimArray<double> &inputVol = V();
-	VRiesz.resizeNoCopy(inputVol);
-
-	transformer.FourierTransform(inputVol, fftV);
-	iu.initZeros(fftV);
-
-	// Calculate u (vector norm of frequency directions)
-	double uz, uy, ux, uz2, u2, uz2y2;
-	long n=0;
-	for(size_t k=0; k<ZSIZE(fftV); ++k)
-	{
-		FFT_IDX2DIGFREQ(k,ZSIZE(fftV),uz);
-		uz2=uz*uz;
-
-		for(size_t i=0; i<YSIZE(fftV); ++i)
-		{
-			FFT_IDX2DIGFREQ(i,YSIZE(fftV),uy);
-			uz2y2=uz2+uy*uy;
-
-			for(size_t j=0; j<XSIZE(fftV); ++j)
-			{
-				FFT_IDX2DIGFREQ(j,XSIZE(fftV),ux);
-				u2=uz2y2+ux*ux;
-				if ((k != 0) || (i != 0) || (j != 0))
-					DIRECT_MULTIDIM_ELEM(iu,n) = 1.0/sqrt(u2);
-				else
-					DIRECT_MULTIDIM_ELEM(iu,n) = 1e38;
-				++n;
-			}
-		}
-	}
-
-	double u;
-	int size_fourier = ZSIZE(fftV);
-	freq_fourier.initZeros(size_fourier);
-
-	int size = ZSIZE(mask());
-
-	VEC_ELEM(freq_fourier,0) = 1e-38;
-	for(size_t k=0; k<size_fourier; ++k)
-	{
-		FFT_IDX2DIGFREQ(k,size, u);
-		VEC_ELEM(freq_fourier,k) = u;
-	}
-}
-
-
-void ProgVolumeGain::amplitudeMonogenicSignal3D(MultidimArray< std::complex<double> > &myfftV,
-		MultidimArray<double> &amplitude)
-{
-	std::cout << "Calculating monogenic amplitude..." << std::endl;
-
-	fftVRiesz.initZeros(myfftV);
-	amplitude.resizeNoCopy(VRiesz);
-	fftVRiesz_aux.initZeros(myfftV);
-	std::complex<double> J(0,1);
-
-	// Filter the input volume and add it to amplitude
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(myfftV)
-	{
-		double iun=DIRECT_MULTIDIM_ELEM(iu,n);
-		double un=1.0/iun;
-		DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = DIRECT_MULTIDIM_ELEM(myfftV, n);
-		DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n) = -J;
-		DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n) *= DIRECT_MULTIDIM_ELEM(fftVRiesz, n);
-		DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n) *= iun;
-	}
-
-	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
-
-
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-		DIRECT_MULTIDIM_ELEM(amplitude,n)=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
-
-	// Calculate first component of Riesz vector
-	fftVRiesz.initZeros(myfftV);
-	double uz, uy, ux;
-	long n=0;
-
-	for(size_t k=0; k<ZSIZE(myfftV); ++k)
-	{
-		for(size_t i=0; i<YSIZE(myfftV); ++i)
-		{
-			for(size_t j=0; j<XSIZE(myfftV); ++j)
-			{
-				ux = VEC_ELEM(freq_fourier,j);
-				DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = ux*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
-				++n;
-			}
-		}
-	}
-	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
-
-	// Calculate second component of Riesz vector
-	fftVRiesz.initZeros(myfftV);
-	n=0;
-
-	for(size_t k=0; k<ZSIZE(myfftV); ++k)
-	{
-		for(size_t i=0; i<YSIZE(myfftV); ++i)
-		{
-			uy = VEC_ELEM(freq_fourier,i);
-			for(size_t j=0; j<XSIZE(myfftV); ++j)
-			{
-				DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = uy*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
-				++n;
-			}
-		}
-	}
-	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-	DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
-
-	// Calculate third component of Riesz vector
-	fftVRiesz.initZeros(myfftV);
-	n=0;
-	for(size_t k=0; k<ZSIZE(myfftV); ++k)
-	{
-		uz = VEC_ELEM(freq_fourier,k);
-		for(size_t i=0; i<YSIZE(myfftV); ++i)
-		{
-			for(size_t j=0; j<XSIZE(myfftV); ++j)
-			{
-				DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = uz*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
-				++n;
-			}
-		}
-	}
-	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-	{
-		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
-		DIRECT_MULTIDIM_ELEM(amplitude,n)=sqrt(DIRECT_MULTIDIM_ELEM(amplitude,n));
-	}
-
-//	// Low pass filter the monogenic amplitude
-//	double freq = 1.5;
-//	double aux_frequency;
-//	int fourier_idx;
-//	DIGFREQ2FFT_IDX(freq, ZSIZE(amplitude), fourier_idx);
-//	FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(amplitude), aux_frequency);
-//	std::cout << "Low pass filtering at " << freq << " " << aux_frequency << std::endl;
-//	freq = aux_frequency;
-//	lowPassFilter.w1 = freq;
-//	amplitude.setXmippOrigin();
-//	lowPassFilter.applyMaskSpace(amplitude);
-
-}
-
-void ProgVolumeGain::calculateGlobalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &histogram,
-		MultidimArray<double> &cdfGlobal, MultidimArray<int> *pMask, int Nbins, double &step)
-{
-
-	std::cout << "Calculating global histogram... " << std::endl;
-	/*double max = amplitude.computeMax();
-	double min = amplitude.computeMin();
-
-	std::cout << "NO MASKED Max = " << max << " Min = " << min << std::endl;*/
-
-	/*FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude){
-		DIRECT_MULTIDIM_ELEM(amplitude, n) *= DIRECT_MULTIDIM_ELEM(*pMask, n);
-	}*/
-
-	double max = amplitude.computeMax();
-	double min = amplitude.computeMin();
-	step = (max-min)/Nbins;
-	std::cout << "Max = " << max << " Min = " << min << std::endl;
-	//AJ CUIDADO: que salen aqui valores negativos en el min a veces
-
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-	{
-		if (DIRECT_MULTIDIM_ELEM(*pMask, n)==1)
-		{
-			int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, n)/step);
-			//if (position>=Nbins)
-			//	std::cout << "ERROOOOORRRR " << position << " " << DIRECT_MULTIDIM_ELEM(amplitude, n) << " " << step << std::endl;
-			if (position>=Nbins)
-				position=Nbins-1;
-			DIRECT_MULTIDIM_ELEM(histogram, position)+=1;
-		}
-	}
-	int histSum=histogram.sum();
-	if (histSum!=0){
-		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogram){
-			DIRECT_MULTIDIM_ELEM(histogram, n) /= histSum;
-			//CDF global
-			if(n==0)
-				DIRECT_MULTIDIM_ELEM(cdfGlobal, n) = DIRECT_MULTIDIM_ELEM(histogram, n);
-			else
-				DIRECT_MULTIDIM_ELEM(cdfGlobal, n) = DIRECT_MULTIDIM_ELEM(histogram, n) + DIRECT_MULTIDIM_ELEM(cdfGlobal, n-1);
-		}
-	}
-
-	//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogram){
-		//std::cout << n << " " << DIRECT_MULTIDIM_ELEM(histogram,n) << " " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
-		//std::cout << "GLOBAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogram,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
-	//}
-
-}
-
-
-void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-		MultidimArray<double> cdfGlobal, MultidimArray<int> *pMask, int Nbins, double step, int boxSize)
-{
-
-	std::cout << "Matching local histograms... " << std::endl;
-	MultidimArray<int> mask_aux;
-	mask_aux.resize((*pMask));
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY((*pMask)){
-		DIRECT_MULTIDIM_ELEM(mask_aux, n) = DIRECT_MULTIDIM_ELEM(*pMask, n);
-	}
-
-	MultidimArray<double> histogramAux, cdfAux;
-	histogramAux.initZeros(Nbins);
-	cdfAux.initZeros(Nbins);
-
-	long p=0;
-	long pp;
-
-	int xdim= XSIZE(amplitude);
-	int ydim= YSIZE(amplitude);
-	int zdim= ZSIZE(amplitude);
-	int total= ZYXSIZE(amplitude);
-	//std::cout << "xdim = " << xdim << " ydim =  " << ydim << " zdim = " << zdim << " total = " << total << std::endl;
-
-	for(size_t k=0; k<zdim; ++k){
-		for(size_t i=0; i<ydim; ++i){
-			for(size_t j=0; j<xdim; ++j){
-				p = j+(i*xdim)+(k*xdim*ydim);
-				//std::cout << "START MATCH INI " << p << std::endl;
-				if (DIRECT_MULTIDIM_ELEM(mask_aux, p)==0)
-					continue;
-
-				//std::cout << "START MATCH " << p << std::endl;
-				for (int kk=-boxSize; kk<=boxSize; kk++){
-					for (int ii=-boxSize; ii<=boxSize; ii++){
-						for (int jj=-boxSize; jj<=boxSize; jj++){
-							pp = p + jj + ii*xdim + kk*xdim*ydim;
-							//std::cout << "pp = " << pp << " p = " << p << " kk = " << kk << " ii = " << ii << " jj = " << jj << " ii*xdim = " << ii*xdim << " kk*xdim*ydim = " << kk*xdim*ydim << std::endl;
-							if(pp<0 || pp>total)
-								continue;
-
-							if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==1){
-								int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, pp)/step);
-								if (position>=Nbins)
-									position=Nbins-1;
-								DIRECT_MULTIDIM_ELEM(histogramAux, position)+=1;
-								DIRECT_MULTIDIM_ELEM(mask_aux, pp)=2;
-							}
-
-						}
-					}
-				}
-
-				int histSum=histogramAux.sum();
-				if (histSum!=0){
-					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux){
-						DIRECT_MULTIDIM_ELEM(histogramAux, n) /= histSum;
-						if(n==0)
-							DIRECT_MULTIDIM_ELEM(cdfAux, n) = DIRECT_MULTIDIM_ELEM(histogramAux, n);
-						else
-							DIRECT_MULTIDIM_ELEM(cdfAux, n) = DIRECT_MULTIDIM_ELEM(histogramAux, n) + DIRECT_MULTIDIM_ELEM(cdfAux, n-1);
-					}
-
-					//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux){
-						//std::cout << "LOCAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << std::endl;
-						//std::cout << n << " " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << " " << DIRECT_MULTIDIM_ELEM(histNew, n) << std::endl;
-					//}
-
-					//Matching
-					for (int kk=-boxSize; kk<=boxSize; kk++){
-						for (int ii=-boxSize; ii<=boxSize; ii++){
-							for (int jj=-boxSize; jj<=boxSize; jj++){
-								pp = p + jj + ii*xdim + kk*xdim*ydim;
-								if(pp<0 || pp>total)
-									continue;
-
-								if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==2){
-									DIRECT_MULTIDIM_ELEM(mask_aux, pp)=0;
-									int position = (int)floor(DIRECT_MULTIDIM_ELEM(amplitude, pp)/step);
-									if (position==Nbins)
-										position-=1;
-									double probLocal = DIRECT_MULTIDIM_ELEM(cdfAux, position);
-									double diffProb=100000, diffAmp=100000;
-									double newAmplitude;
-									//std::cout << "MATCH: In " << pp << std::endl;
-									//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(amplitude, pp) " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << std::endl;
-									//std::cout << "MATCH: position " << position << std::endl;
-									FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(cdfGlobal){
-										//std::cout << "MATCH: DIRECT_MULTIDIM_ELEM(cdfGlobal,n) " << DIRECT_MULTIDIM_ELEM(cdfGlobal,n) << std::endl;
-										//std::cout << "MATCH: probLocal " << probLocal << std::endl;
-										if( fabs(DIRECT_MULTIDIM_ELEM(cdfGlobal,n)-probLocal)<=diffProb){
-											diffProb = fabs(DIRECT_MULTIDIM_ELEM(cdfGlobal,n)-probLocal);
-											//std::cout << "MATCH: diffProb " << diffProb << std::endl;
-											if( fabs(DIRECT_MULTIDIM_ELEM(amplitude, pp)-(step*n))< diffAmp){
-												diffAmp = fabs(DIRECT_MULTIDIM_ELEM(amplitude, pp)-(step*n));
-												//std::cout << "MATCH: diffAmp " << diffAmp << std::endl;
-												newAmplitude = step*n;
-												//std::cout << "MATCH: newAmplitude " << newAmplitude << std::endl;
-												//std::cout << "MATCH: step " << step << std::endl;
-												//std::cout << "MATCH: n " << n << std::endl;
-											}
-										}
-									}
-
-									DIRECT_MULTIDIM_ELEM(gainOut, pp) = newAmplitude/DIRECT_MULTIDIM_ELEM(amplitude,pp);
-									//std::cout << "MATCH: In " << pp << " position " << position << " step " << step << " prev_amp =  " << DIRECT_MULTIDIM_ELEM(amplitude, pp) << " new_amp= " << newAmplitude << " gain= " << DIRECT_MULTIDIM_ELEM(gainOut, pp) << std::endl;
-
-								}
-
-							}
-						}
-					}
-
-					//FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(histogramAux){
-						//std::cout << "LOCAL: In " << n << " hist(n)= " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " cdf(n)= " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << std::endl;
-						//std::cout << n << " " << DIRECT_MULTIDIM_ELEM(histogramAux,n) << " " << DIRECT_MULTIDIM_ELEM(cdfAux,n) << " " << DIRECT_MULTIDIM_ELEM(histNew, n) << std::endl;
-					//}
-					//exit(1);
-					//cdfsLocal.push_back(cdfAux);
-				}
-				//std::cout << "FIN MATCH " << p << std::endl;
-				histogramAux.initZeros(Nbins);
-				cdfAux.initZeros(Nbins);
-				//std::cout << "FIN MATCH 2 " << p << std::endl;
-
-			}
-		}
-	}
-
-}
 
 int myBinarySearch(std::vector< double > amplitudes, double value){
 
@@ -490,7 +152,7 @@ int myBinarySearch(std::vector< double > amplitudes, double value){
 }
 
 
-void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
+void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
 		std::vector< double > globalAmplitudes, MultidimArray<int> *pMask, int boxSize, double freq)
 {
 
@@ -535,10 +197,10 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 								continue;
 
 							if (DIRECT_MULTIDIM_ELEM(mask_aux, pp)==1){
-								if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), pp)) > freq)){
+								//if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), pp)) > freq)){
 									localAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(amplitude, pp));
 									DIRECT_MULTIDIM_ELEM(mask_aux, pp)=2;
-								}
+								//}
 							}
 
 						}
@@ -592,7 +254,10 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 
 									if(superposed){
 										DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
-										DIRECT_MULTIDIM_ELEM(voxelCount, pp) += 1;
+										if(!mono)
+											DIRECT_MULTIDIM_ELEM(voxelCount, pp) += 1;
+										else
+											DIRECT_MULTIDIM_ELEM(voxelCount, pp) += DIRECT_MULTIDIM_ELEM(Vweight, pp);
 									}else{
 										DIRECT_MULTIDIM_ELEM(gainOut, pp) = newAmplitude;
 									}
@@ -617,111 +282,16 @@ void ProgVolumeGain::matchingLocalHistogram_new(MultidimArray<double> amplitude,
 		}
 	}
 
+	Image<double> saveImg;
+	FileName name;
+	name = formatString("./voxelCount%i.vol", (int)(freq*1000));
+	saveImg = voxelCount;
+	saveImg.write(name);
+	saveImg.clear();
+
 
 }
 
-
-
-
-void ProgVolumeGain::run_before()
-{
-
-	MultidimArray<double> amplitude, gainOut, histogramGlobal, cdfGlobal;
-	MultidimArray<int> *pMask;
-
-	int nBins=100;
-	int iter=5;
-
-	std::cout << "nBins " << nBins << std::endl;
-	std::cout << "boxSize " << boxSize << std::endl;
-
-    produce_side_info();
-    pMask = &(mask());
-
-    for (int i=0; i<iter; i++){
-    	std::cout << "Iter " << i << std::endl;
-
-
-		calculateFFT();
-		amplitudeMonogenicSignal3D(fftV, amplitude);
-		Image<double> saveImg;
-		FileName name;
-		name = formatString("./amplitudeMono%i.vol", i);
-		saveImg = amplitude;
-		saveImg.write(name);
-		//saveImg.clear();
-
-		Image<int> saveMask;
-		name = formatString("./mask%i.vol", i);
-		saveMask = mask();
-		saveMask.write(name);
-		saveMask.clear();
-
-		histogramGlobal.initZeros(nBins);
-		cdfGlobal.initZeros(nBins);
-		double step;
-
-		calculateGlobalHistogram(amplitude, histogramGlobal, cdfGlobal, pMask, nBins, step);
-
-		gainOut.initZeros(amplitude);
-		matchingLocalHistogram(amplitude, gainOut, cdfGlobal, pMask, nBins, step, boxSize);
-
-		name = formatString("./gainOut%i.vol", i);
-		saveImg = gainOut;
-		saveImg.write(name);
-		//saveImg.clear();
-
-		//IDEAS: filtrar gain, bien calculada??
-
-		/*// Low pass filter the gain
-		double freq = 1.5;
-		double aux_frequency;
-		int fourier_idx;
-		DIGFREQ2FFT_IDX(freq, ZSIZE(gainOut), fourier_idx);
-		FFT_IDX2DIGFREQ(fourier_idx, ZSIZE(gainOut), aux_frequency);
-		std::cout << "Low pass filtering at " << freq << " " << aux_frequency << std::endl;
-		freq = aux_frequency;
-		lowPassFilter.w1 = freq;
-		gainOut.setXmippOrigin();
-		lowPassFilter.applyMaskSpace(gainOut);
-
-		name = formatString("./gainOutFilter%i.vol", i);
-		saveImg = gainOut;
-		saveImg.write(name);*/
-
-		//Multiply volume and gain
-		V() *= gainOut;
-
-		/*//Low pass filtering the amplitude values
-		double alpha=0.8;
-		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(gainOut){
-			DIRECT_MULTIDIM_ELEM(V(),n) = alpha*DIRECT_MULTIDIM_ELEM(V(),n) + (1-alpha)*DIRECT_MULTIDIM_ELEM(gainOut,n);
-		}*/
-
-		name = formatString("./outputVol%i.vol", i);
-		saveImg = V();
-		saveImg.write(name);
-		saveImg.clear();
-
-    }
-
-
-	/*/AJ to check if the histogramsLocal contains all the information of the volume
-	std::cout << "histogramLocal size = " << howManyHist << std::endl;
-	MultidimArray<double> *aux;
-	MultidimArray<double> total;
-	total.initZeros(Nbins);
-	for (int i=0; i<howManyHist; i++){
-		aux = &histogramsLocal[i];
-		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(*aux){
-			DIRECT_MULTIDIM_ELEM(total, n)+=DIRECT_MULTIDIM_ELEM(*aux, n);
-		}
-	}
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(total)
-		std::cout << "Histogram total in " << n << " = " << total(n) << std::endl;
-	*/
-
-}
 
 void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq)
 {
@@ -730,13 +300,13 @@ void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *p
 	std::vector< double > globalAmplitudes;
 	double max = V.computeMax();
 	double min = V.computeMin();
-	std::cout << "Max = " << max << " Min = " << min << std::endl;
+	//std::cout << "Max = " << max << " Min = " << min << std::endl;
 
 	//Calculate sort vector of global amplitudes values to obtain the cdf
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V){
 		if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
 		{
-			if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n)) > freq))
+			//if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n)) > freq))
 				globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
 		}
 	}
@@ -744,7 +314,7 @@ void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *p
 
 	//Matching histograms
 	gainOut.initZeros(V);
-	matchingLocalHistogram_new(V, gainOut, globalAmplitudes, pMask, boxSize, freq);
+	matchingLocalHistogram(V, gainOut, globalAmplitudes, pMask, boxSize, freq);
 
 	V=gainOut;
 
@@ -785,12 +355,7 @@ void ProgVolumeGain::run()
 
 			for (int i=0;i<filter_num;i++)
 			{
-				//if (i>0 && j==0){ //Primera iteracion, bandas de freq mayores que la primera
-				//	V.read(fn_vol);
-				//	V().setXmippOrigin();
-				//}else if(j>0){ //Iteraciones mayor que 1, todas las bandas de freq
 				if(j>0 && i==0){ //Iteraciones mayor que 1, primera banda de freq, rehacer la fft con el volumen de salida de la iteracion anterior
-					//name = formatString("./outputVol_iter%i_new.vol",j-1);
 					name.compose(nameRoot, j, "vol");
 					V.read(name);
 					V().setXmippOrigin();
@@ -819,10 +384,6 @@ void ProgVolumeGain::run()
 						{
 							FFT_IDX2DIGFREQ(jj,XSIZE(fftV),ux);
 							u2=uz2y2+ux*ux;
-							//if ((kk != 0) || (ii != 0) || (jj != 0))
-							//	freqI = sqrt(u2);
-							//else
-							//	freqI = 1e38;
 
 							if(u2>=w12 && u2<w22){
 								DIRECT_MULTIDIM_ELEM(fftVaux,n) = DIRECT_MULTIDIM_ELEM(fftV,n);
@@ -834,7 +395,36 @@ void ProgVolumeGain::run()
 				}
 				transformer_inv.inverseFourierTransform(fftVaux, V());
 
-//				name = formatString("./filterVol%i_iter%i_50.vol", i, j);
+//				name = formatString("./beforeMono_filterVol%i_iter%i.vol", i, j);
+//				saveImg = V();
+//				saveImg.write(name);
+//				saveImg.clear();
+
+				//To apply monores pushing down the frequencies above the maximum resolution (minimum value)
+				double eval, weightGauss;
+				double mean = sampling/w1;
+				double sigma=7.0;
+				//double weightAux = (1/(sigma*sqrt(2*PI)));
+				double aux = 1.0/(2*sigma*sigma);
+				if(mono){
+					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
+						DIRECT_MULTIDIM_ELEM(Vweight, n)=1.0;
+						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+						{
+							if(sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n) < w1){
+								eval = DIRECT_MULTIDIM_ELEM(monoRes(), n);
+								weightGauss = (exp(-(eval-mean)*(eval-mean)*aux));
+								//std::cout << "AAAAA mean " << mean << " eval " << eval << " weightGauss " << weightGauss << std::endl;
+								DIRECT_MULTIDIM_ELEM(Vweight, n)=weightGauss;
+								//std::cout << "1 DIRECT_MULTIDIM_ELEM(V, n) " << DIRECT_MULTIDIM_ELEM(V(), n) << std::endl;
+								DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) * weightGauss;
+								//std::cout << "2 DIRECT_MULTIDIM_ELEM(V, n) " << DIRECT_MULTIDIM_ELEM(V(), n) << std::endl;
+							}
+						}
+					}
+				}
+
+//				name = formatString("./filterVol%i_iter%i.vol", i, j);
 //				saveImg = V();
 //				saveImg.write(name);
 //				saveImg.clear();

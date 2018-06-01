@@ -57,11 +57,12 @@ public:
     // Input volume
     Image<double> V, monoRes, Vini;
     Image<int> mask;
-    MultidimArray<double> iu, VRiesz;
+    MultidimArray<double> iu, VRiesz, Vweight;
     MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;
     int NVoxelsOriginalMask;
     Matrix1D<double> freq_fourier;
     FourierTransformer transformer_inv;
+
 
 
 public:
@@ -78,24 +79,9 @@ public:
     void produce_side_info();
 
     /** Run */
-    void run_before();
     void run();
 
-    /* To calculate the FFT and masking the input volume */
-    void calculateFFT();
-
-    /* Mogonogenid amplitud of a volume, given an input volume,
-     * the monogenic amplitud is calculated and low pass filtered at frequency w1*/
-    void amplitudeMonogenicSignal3D(MultidimArray< std::complex<double> > &myfftV,
-    		 MultidimArray<double> &amplitude);
-
-    void calculateGlobalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &histogram,
-    		MultidimArray<double> &cdfGlobal, MultidimArray<int> *pMask, int Nbins, double &step);
-
     void matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-    		MultidimArray<double> cdfGlobal, MultidimArray<int> *pMask, int Nbins, double step, int boxSize);
-
-    void matchingLocalHistogram_new(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
     		std::vector< double > cdfGlobal, MultidimArray<int> *pMask, int boxSize, double freq);
 
     void processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq);
