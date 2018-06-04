@@ -3979,7 +3979,6 @@ void MonogenicFilter::defineParams(XmippProgram * program)
 /** Read from program command line */
 void MonogenicFilter::readParams(XmippProgram * program)
 {
-
 }
 
 void MonogenicFilter::apply(MultidimArray< double > &inputVol)
@@ -4051,11 +4050,11 @@ void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 		DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n) *= iun;
 	}
 
-	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
+	transformer_inv.inverseFourierTransform(fftVRiesz, amplitude);
 
 
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-		DIRECT_MULTIDIM_ELEM(amplitude,n)=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
+		DIRECT_MULTIDIM_ELEM(amplitude,n)*=DIRECT_MULTIDIM_ELEM(amplitude,n);
 
 	// Calculate first component of Riesz vector
 	fftVRiesz.initZeros(fftV);
@@ -4078,51 +4077,36 @@ void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
 		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
 
-	// Calculate second component of Riesz vector
-	fftVRiesz.initZeros(fftV);
-	n=0;
-
-	for(size_t k=0; k<ZSIZE(fftV); ++k)
-	{
-		for(size_t i=0; i<YSIZE(fftV); ++i)
-		{
-			uy = VEC_ELEM(freq_fourier,i);
-			for(size_t j=0; j<XSIZE(fftV); ++j)
-			{
-				DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = uy*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
-				++n;
-			}
-		}
-	}
-	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-	DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
-
-	// Calculate third component of Riesz vector
-	fftVRiesz.initZeros(fftV);
+	// Calculate second and third components of Riesz vector
 	n=0;
 	for(size_t k=0; k<ZSIZE(fftV); ++k)
 	{
 		uz = VEC_ELEM(freq_fourier,k);
 		for(size_t i=0; i<YSIZE(fftV); ++i)
 		{
+			uy = VEC_ELEM(freq_fourier,i);
 			for(size_t j=0; j<XSIZE(fftV); ++j)
 			{
-				DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = uz*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
+				DIRECT_MULTIDIM_ELEM(fftVRiesz, n) = uy*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
+				DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n) = uz*DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n);
 				++n;
 			}
 		}
 	}
 	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
+
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
+		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
+
+	transformer_inv.inverseFourierTransform(fftVRiesz_aux, VRiesz);
+
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
 	{
 		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
 		DIRECT_MULTIDIM_ELEM(amplitude,n)=sqrt(DIRECT_MULTIDIM_ELEM(amplitude,n));
-
 		//save the result
 		DIRECT_MULTIDIM_ELEM(inputVol,n)=DIRECT_MULTIDIM_ELEM(amplitude,n);
 	}
-
 
 
 }
