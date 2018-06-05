@@ -134,6 +134,7 @@ from protocol_write_testP import XmippProtWriteTestP
 from protocol_ctf_selection import XmippProtCTFSelection
 #AJ
 from protocol_realignment_classes import XmippProtReAlignClasses
+from protocol_particle_polishing import XmippProtParticlePolishing
 # Wizards
 from wizard import *
 

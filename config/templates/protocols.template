@@ -65,7 +65,8 @@ Protocols SPA = [
 			{"tag": "protocol", "value": "ProtExtractCoords",   "text": "default"},
 			{"tag": "protocol", "value": "XmippProtParticlePickingPairs",  "text": "default"},
 			{"tag": "protocol", "value": "ProtLocalizedRecons", "text": "default"},
-			{"tag": "protocol", "value": "XmippProtReAlignClasses", "text": "default"}
+			{"tag": "protocol", "value": "XmippProtReAlignClasses", "text": "default"},
+			{"tag": "protocol", "value": "XmippProtParticlePolishing", "text": "default"}
 		]},
 		{"tag": "protocol_group", "text": "Extract", "openItem": "False", "children": [
 			{"tag": "protocol", "value": "XmippProtExtractParticles",   "text": "default"},

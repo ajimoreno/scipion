@@ -601,6 +601,8 @@ for p in ['angular_break_symmetry',
           'multireference_aligneability',
           'nma_alignment',
           'nma_alignment_vol',
+          
+          'particle_polishing',
 
           'pdb_analysis',
           'pdb_construct_dictionary',
