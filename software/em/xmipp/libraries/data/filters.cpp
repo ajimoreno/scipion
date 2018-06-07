@@ -3984,7 +3984,7 @@ void MonogenicFilter::readParams(XmippProgram * program)
 void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 {
 
-	MultidimArray<double> iu, VRiesz, amplitude;
+	MultidimArray<double> iu, VRiesz;
 	FourierTransformer transformer, transformer_inv;
 	MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;
 	Matrix1D<double> freq_fourier;
@@ -4035,7 +4035,6 @@ void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 
 
 	fftVRiesz.initZeros(fftV);
-	amplitude.resizeNoCopy(VRiesz);
 	fftVRiesz_aux.initZeros(fftV);
 	std::complex<double> J(0,1);
 
@@ -4050,11 +4049,11 @@ void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 		DIRECT_MULTIDIM_ELEM(fftVRiesz_aux, n) *= iun;
 	}
 
-	transformer_inv.inverseFourierTransform(fftVRiesz, amplitude);
+	transformer_inv.inverseFourierTransform(fftVRiesz, inputVol);
 
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-		DIRECT_MULTIDIM_ELEM(amplitude,n)*=DIRECT_MULTIDIM_ELEM(amplitude,n);
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(inputVol)
+		DIRECT_MULTIDIM_ELEM(inputVol,n)*=DIRECT_MULTIDIM_ELEM(inputVol,n);
 
 	// Calculate first component of Riesz vector
 	fftVRiesz.initZeros(fftV);
@@ -4074,8 +4073,8 @@ void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 		}
 	}
 	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(inputVol)
+		DIRECT_MULTIDIM_ELEM(inputVol,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
 
 	// Calculate second and third components of Riesz vector
 	n=0;
@@ -4095,17 +4094,16 @@ void MonogenicFilter::apply(MultidimArray< double > &inputVol)
 	}
 	transformer_inv.inverseFourierTransform(fftVRiesz, VRiesz);
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
-		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(inputVol)
+		DIRECT_MULTIDIM_ELEM(inputVol,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
 
 	transformer_inv.inverseFourierTransform(fftVRiesz_aux, VRiesz);
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(amplitude)
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(inputVol)
 	{
-		DIRECT_MULTIDIM_ELEM(amplitude,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
-		DIRECT_MULTIDIM_ELEM(amplitude,n)=sqrt(DIRECT_MULTIDIM_ELEM(amplitude,n));
-		//save the result
-		DIRECT_MULTIDIM_ELEM(inputVol,n)=DIRECT_MULTIDIM_ELEM(amplitude,n);
+		DIRECT_MULTIDIM_ELEM(inputVol,n)+=DIRECT_MULTIDIM_ELEM(VRiesz,n)*DIRECT_MULTIDIM_ELEM(VRiesz,n);
+		DIRECT_MULTIDIM_ELEM(inputVol,n)=sqrt(DIRECT_MULTIDIM_ELEM(inputVol,n));
+
 	}
 
 

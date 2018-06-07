@@ -59,7 +59,6 @@ public:
     Image<int> mask;
     MultidimArray<double> iu, VRiesz, Vweight;
     MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;
-    int NVoxelsOriginalMask;
     Matrix1D<double> freq_fourier;
     FourierTransformer transformer_inv;
 
@@ -82,7 +81,7 @@ public:
     void run();
 
     void matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-    		std::vector< double > cdfGlobal, MultidimArray<int> *pMask, int boxSize, double freq);
+    		std::vector< double > cdfGlobal, MultidimArray<int> mask, int boxSize, double freq);
 
     void processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq);
 
