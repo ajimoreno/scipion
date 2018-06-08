@@ -32,6 +32,7 @@ from convert import writeSetOfParticles
 import pyworkflow.em.metadata as md
 from os import remove
 from pyworkflow.em.packages.xmipp3.convert import readSetOfParticles
+from scipy.interpolate import UnivariateSpline
 
 
 class XmippProtParticlePolishing(ProtAnalysis2D):
@@ -52,6 +53,10 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
                       label="Number of movie frames",
                       important=True,
                       help='Number of frames in the input movie particle set')
+        form.addParam('invertContrast', params.BooleanParam,
+                      label='Invert contrast?',
+                      default = False,
+                      help='Decide if to invert contrast or not in the output particles')
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -62,6 +67,8 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
 
         self._insertFunctionStep('convertStep')
         self._insertFunctionStep('processingStep')
+        if (self.invertContrast):
+            self._insertFunctionStep('invertContrastStep')
         self._insertFunctionStep('createOutputStep')
 
     # --------------------------- STEPS functions ------------------------------
@@ -88,11 +95,29 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
             mdAlignFn = self._getExtraPath('alignParticle%d.xmd' % j)
             mdAlign = md.MetaData(mdAlignFn)
             fnStack = self._getExtraPath('alignParticle%d.stk' % j)
+            list_shifts_x=[]
+            list_shifts_y=[]
+            count=0
             for i, row in enumerate(md.iterRows(mdAlign)):
-                args = '-i %s'%row.getValue(md.MDL_IMAGE)
-                args += ' --shift %d %d '%(row.getValue(md.MDL_SHIFT_X), row.getValue(md.MDL_SHIFT_Y))
-                args += ' -o %06d@%s'%(i+1, fnStack)
-                self.runJob('xmipp_transform_geometry', args,  numberOfMpi=1)
+                count+=1
+                list_shifts_x.append(row.getValue(md.MDL_SHIFT_X))
+                list_shifts_y.append(row.getValue(md.MDL_SHIFT_Y))
+            spl_shifts_x = UnivariateSpline(range(count), list_shifts_x)
+            spl_shifts_y = UnivariateSpline(range(count), list_shifts_y)
+            spl_shifts_x.set_smoothing_factor(len(list_shifts_x)*10)
+            spl_shifts_y.set_smoothing_factor(len(list_shifts_y)*10)
+            smooth_shifts_x = spl_shifts_x(range(count))
+            smooth_shifts_y = spl_shifts_y(range(count))
+            print("list_shifts_x", list_shifts_x)
+            print("smooth_shifts_x", smooth_shifts_x)
+            print("list_shifts_y", list_shifts_y)
+            print("smooth_shifts_y", smooth_shifts_y)
+
+            for i, row in enumerate(md.iterRows(mdAlign)):
+                args = '-i %s' % row.getValue(md.MDL_IMAGE)
+                args += ' --shift %d %d ' % (smooth_shifts_x[i], smooth_shifts_y[i])
+                args += ' -o %06d@%s' % (i + 1, fnStack)
+                self.runJob('xmipp_transform_geometry', args, numberOfMpi=1)
 
             total=0
             fnStackOut = self._getExtraPath('average.stk')
@@ -121,8 +146,21 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
 
         mdStackOut.write(self._getExtraPath('average.xmd'), md.MD_APPEND)
 
+
+    def invertContrastStep(self):
+
+        args = ' -i %s' % self._getExtraPath('average.xmd')
+        args += ' -o %s' % self._getExtraPath('output_images.stk')
+        args += ' --save_metadata_stack %s' % self._getExtraPath('output_images.xmd')
+        args += ' --keep_input_columns --mult -1'
+        self.runJob('xmipp_image_operate', args, numberOfMpi=1)
+
+
     def createOutputStep(self):
-        fnOut = self._getExtraPath('average.xmd')
+        if not self.invertContrast:
+            fnOut = self._getExtraPath('average.xmd')
+        else:
+            fnOut = self._getExtraPath('output_images.xmd')
         outMovieSet = self._createSetOfParticles()
         outMovieSet.setSamplingRate(self.inputMovieParticles.get().getSamplingRate())
         readSetOfParticles(fnOut, outMovieSet)
