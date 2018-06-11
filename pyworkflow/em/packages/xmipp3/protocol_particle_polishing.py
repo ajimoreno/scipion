@@ -32,6 +32,7 @@ from convert import writeSetOfParticles
 import pyworkflow.em.metadata as md
 from os import remove
 from pyworkflow.em.packages.xmipp3.convert import readSetOfParticles
+from scipy.interpolate import UnivariateSpline
 
 
 class XmippProtParticlePolishing(ProtAnalysis2D):
@@ -88,11 +89,23 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
             mdAlignFn = self._getExtraPath('alignParticle%d.xmd' % j)
             mdAlign = md.MetaData(mdAlignFn)
             fnStack = self._getExtraPath('alignParticle%d.stk' % j)
+            list_shifts_x=[]
+            list_shifts_y=[]
+            count=0
             for i, row in enumerate(md.iterRows(mdAlign)):
+                count+=1
                 args = '-i %s'%row.getValue(md.MDL_IMAGE)
                 args += ' --shift %d %d '%(row.getValue(md.MDL_SHIFT_X), row.getValue(md.MDL_SHIFT_Y))
                 args += ' -o %06d@%s'%(i+1, fnStack)
                 self.runJob('xmipp_transform_geometry', args,  numberOfMpi=1)
+                list_shifts_x.append(row.getValue(md.MDL_SHIFT_X))
+                list_shifts_y.append(row.getValue(md.MDL_SHIFT_Y))
+            spl_shifts_x  = UnivariateSpline(range(count), list_shifts_x)
+            spl_shifts_y = UnivariateSpline(range(count), list_shifts_y)
+            smooth_shifts_x = spl_shifts_x(range(count))
+            smooth_shifts_y = spl_shifts_y(range(count))
+            print("smooth_shifts_x", smooth_shifts_x)
+            print("smooth_shifts_y", smooth_shifts_y)
 
             total=0
             fnStackOut = self._getExtraPath('average.stk')
