@@ -53,6 +53,14 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
                       label="Number of movie frames",
                       important=True,
                       help='Number of frames in the input movie particle set')
+        form.addParam('lowPass', params.BooleanParam,
+                      label='Apply low pass filter?',
+                      default = False,
+                      help='Decide if to apply a low pass filter to the input movie particles')
+        form.addParam('cutoffFreq', params.FloatParam, default=0.1,
+                       condition="lowPass==True",
+                       label='Cutoff frequency (<1/2)',
+                       help="Cutoff frequency for the low pass filter")
         form.addParam('invertContrast', params.BooleanParam,
                       label='Invert contrast?',
                       default = False,
@@ -63,7 +71,9 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
     # --------------------------- INSERT steps functions -----------------------
     def _insertAllSteps(self):
 
-        self.inputParticles = self._getExtraPath('inputParticles.xmd')
+        self.inputParticlesStk = self._getExtraPath('inputParticles.stk')
+        self.inputParticlesXmd = self._getExtraPath('inputParticles.xmd')
+        self.auxInputParticles = self._getExtraPath('auxInputParticles.xmd')
 
         self._insertFunctionStep('convertStep')
         self._insertFunctionStep('processingStep')
@@ -72,29 +82,67 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
         self._insertFunctionStep('createOutputStep')
 
     # --------------------------- STEPS functions ------------------------------
-
     def convertStep(self):
-        writeSetOfParticles(self.inputMovieParticles.get(), self.inputParticles)
+
+        if self.lowPass:
+            writeSetOfParticles(self.inputMovieParticles.get(), self.auxInputParticles)
+
+            #Low pass filtering movie particles???
+            args = '-i %s ' % self.auxInputParticles
+            args += ' --fourier low_pass %f' %self.cutoffFreq
+            args += ' -o %s' % self.inputParticlesStk
+            self.runJob('xmipp_transform_filter', args, numberOfMpi=1)
+
+            mdIn = md.MetaData()
+            for i, row in enumerate(md.iterRows(self.auxInputParticles)):
+                row.setValue(md.MDL_IMAGE, '%06d@%s'%(i+1, self.inputParticlesStk))
+                row.addToMd(mdIn)
+
+            mdIn.write(self.inputParticlesXmd)
+
+        else:
+            writeSetOfParticles(self.inputMovieParticles.get(), self.inputParticlesXmd)
+
 
     def processingStep(self):
 
-        numberOfParticles = long(getSize(self.inputParticles))/long(self.numberOfFrames)
+        numberOfParticles = long(getSize(self.inputParticlesXmd))/long(self.numberOfFrames)
         mdStackOut = md.MetaData()
+
+        fnStackOut = self._getExtraPath('output.stk')
+        fnMdOut = self._getExtraPath('output.xmd')
 
         for j in range(numberOfParticles):
 
-            args = '-i %s ' % (self.inputParticles)
+            movieParticle = self._getExtraPath('movie%d.xmd'%j)
+            mdAlignFn = self._getExtraPath('alignParticle%d.xmd' % j)
+            fnStack = self._getExtraPath('alignParticle%d.stk' % j)
+
+
+            args = '-i %s ' % (self.inputParticlesXmd)
             args += ' --query select \"itemId%' + '%d==%d\" ' % (numberOfParticles,j)
-            args += ' -o %s' %(self._getExtraPath('movie%d.xmd'%j))
+            args += ' -o %s' % movieParticle
             self.runJob('xmipp_metadata_utilities', args, numberOfMpi=1)
+
+            ############################
+            ##### AJ CUIDADO CON EL FILTRO, SOLO PARA OBTENER SHIFTS, LUEGO APLICAR SOBRE IMAGEN ORIGINAL
+
+        #     args = '-i %s ' %(self._getExtraPath('movie%d.xmd'%j))
+        #     args += ' --oaligned %s' % (self._getExtraPath('alignParticle%d.stk' % j))
+        #     args += ' --oavg %s' % (self._getExtraPath('alignParticle%d.mrc' % j))
+        #     self.runJob('xmipp_movie_alignment_correlation', args, numberOfMpi=1)
+        #
+        #     row = md.Row()
+        #     row.setValue(md.MDL_IMAGE, self._getExtraPath('alignParticle%d.mrc' % j))
+        #     row.addToMd(mdStackOut)
+        #
+        # mdStackOut.write(self._getExtraPath('output.xmd'), md.MD_APPEND)
 
             args = '-i %s ' %(self._getExtraPath('movie%d.xmd'%j))
             args += ' -o %s' % (self._getExtraPath('alignParticle%d.xmd' % j))
             self.runJob('xmipp_movie_alignment_correlation', args, numberOfMpi=1)
 
-            mdAlignFn = self._getExtraPath('alignParticle%d.xmd' % j)
             mdAlign = md.MetaData(mdAlignFn)
-            fnStack = self._getExtraPath('alignParticle%d.stk' % j)
             list_shifts_x=[]
             list_shifts_y=[]
             count=0
@@ -113,15 +161,15 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
             print("list_shifts_y", list_shifts_y)
             print("smooth_shifts_y", smooth_shifts_y)
 
-            for i, row in enumerate(md.iterRows(mdAlign)):
+            for i, row in enumerate(md.iterRows(movieParticle)):
                 args = '-i %s' % row.getValue(md.MDL_IMAGE)
                 args += ' --shift %d %d ' % (smooth_shifts_x[i], smooth_shifts_y[i])
                 args += ' -o %06d@%s' % (i + 1, fnStack)
                 self.runJob('xmipp_transform_geometry', args, numberOfMpi=1)
 
             total=0
-            fnStackOut = self._getExtraPath('average.stk')
-            for i, row in enumerate(md.iterRows(mdAlign)):
+
+            for i, row in enumerate(md.iterRows(movieParticle)):
                 total+=1
                 if i==0:
                     args = '-i %06d@%s' % (1, fnStack)
@@ -141,26 +189,26 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
             row = md.Row()
             row.setValue(md.MDL_IMAGE, '%06d@%s'%(j+1, fnStackOut))
             row.addToMd(mdStackOut)
-            remove(mdAlignFn)
-            remove(fnStack)
+            #remove(mdAlignFn)
+            #remove(fnStack)
 
-        mdStackOut.write(self._getExtraPath('average.xmd'), md.MD_APPEND)
+        mdStackOut.write(fnMdOut, md.MD_APPEND)
 
 
     def invertContrastStep(self):
 
-        args = ' -i %s' % self._getExtraPath('average.xmd')
-        args += ' -o %s' % self._getExtraPath('output_images.stk')
-        args += ' --save_metadata_stack %s' % self._getExtraPath('output_images.xmd')
+        args = ' -i %s' % self._getExtraPath('output.xmd')
+        args += ' -o %s' % self._getExtraPath('output_invert.stk')
+        args += ' --save_metadata_stack %s' % self._getExtraPath('output_invert.xmd')
         args += ' --keep_input_columns --mult -1'
         self.runJob('xmipp_image_operate', args, numberOfMpi=1)
 
 
     def createOutputStep(self):
         if not self.invertContrast:
-            fnOut = self._getExtraPath('average.xmd')
+            fnOut = self._getExtraPath('output.xmd')
         else:
-            fnOut = self._getExtraPath('output_images.xmd')
+            fnOut = self._getExtraPath('output_invert.xmd')
         outMovieSet = self._createSetOfParticles()
         outMovieSet.setSamplingRate(self.inputMovieParticles.get().getSamplingRate())
         readSetOfParticles(fnOut, outMovieSet)
