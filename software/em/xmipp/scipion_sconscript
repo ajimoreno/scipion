@@ -602,7 +602,7 @@ for p in ['angular_break_symmetry',
           'nma_alignment',
           'nma_alignment_vol',
           
-          'particle_polishing',
+          #'particle_polishing',
 
           'pdb_analysis',
           'pdb_construct_dictionary',

@@ -53,14 +53,10 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
                       label="Number of movie frames",
                       important=True,
                       help='Number of frames in the input movie particle set')
-        form.addParam('lowPass', params.BooleanParam,
-                      label='Apply low pass filter?',
-                      default = False,
-                      help='Decide if to apply a low pass filter to the input movie particles')
-        form.addParam('cutoffFreq', params.FloatParam, default=0.1,
-                       condition="lowPass==True",
-                       label='Cutoff frequency (<1/2)',
-                       help="Cutoff frequency for the low pass filter")
+        form.addParam('maxShift', params.FloatParam,
+                      label='Max shift',
+                      default = -1.0,
+                      help='Max shift allowed in pixel values. -1 for not restriction.')
         form.addParam('invertContrast', params.BooleanParam,
                       label='Invert contrast?',
                       default = False,
@@ -84,24 +80,7 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
     # --------------------------- STEPS functions ------------------------------
     def convertStep(self):
 
-        if self.lowPass:
-            writeSetOfParticles(self.inputMovieParticles.get(), self.auxInputParticles)
-
-            #Low pass filtering movie particles???
-            args = '-i %s ' % self.auxInputParticles
-            args += ' --fourier low_pass %f' %self.cutoffFreq
-            args += ' -o %s' % self.inputParticlesStk
-            self.runJob('xmipp_transform_filter', args, numberOfMpi=1)
-
-            mdIn = md.MetaData()
-            for i, row in enumerate(md.iterRows(self.auxInputParticles)):
-                row.setValue(md.MDL_IMAGE, '%06d@%s'%(i+1, self.inputParticlesStk))
-                row.addToMd(mdIn)
-
-            mdIn.write(self.inputParticlesXmd)
-
-        else:
-            writeSetOfParticles(self.inputMovieParticles.get(), self.inputParticlesXmd)
+        writeSetOfParticles(self.inputMovieParticles.get(), self.inputParticlesXmd)
 
 
     def processingStep(self):
@@ -112,34 +91,30 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
         fnStackOut = self._getExtraPath('output.stk')
         fnMdOut = self._getExtraPath('output.xmd')
 
-        for j in range(numberOfParticles):
+        micId = 1
+        idx=1
+        while idx<=range(numberOfParticles):
 
-            movieParticle = self._getExtraPath('movie%d.xmd'%j)
-            mdAlignFn = self._getExtraPath('alignParticle%d.xmd' % j)
-            fnStack = self._getExtraPath('alignParticle%d.stk' % j)
-
+            movieParticle = self._getExtraPath('movie%d.xmd'%idx)
+            mdAlignFn = self._getExtraPath('alignParticle%d.xmd' % idx)
+            fnStack = self._getExtraPath('alignParticle%d.mrcs' % idx)
+            print("Before if ", micId, idx)
 
             args = '-i %s ' % (self.inputParticlesXmd)
-            args += ' --query select \"itemId%' + '%d==%d\" ' % (numberOfParticles,j)
+            args += ' --query select \"micrographId==%d AND particleId==%d\" ' % (micId, idx)
             args += ' -o %s' % movieParticle
             self.runJob('xmipp_metadata_utilities', args, numberOfMpi=1)
+            if getSize(movieParticle)==0:
+                micId+=1
+                print("En el if ", micId, idx)
+                if idx>=numberOfParticles:
+                    break
+                continue
 
-            ############################
-            ##### AJ CUIDADO CON EL FILTRO, SOLO PARA OBTENER SHIFTS, LUEGO APLICAR SOBRE IMAGEN ORIGINAL
 
-        #     args = '-i %s ' %(self._getExtraPath('movie%d.xmd'%j))
-        #     args += ' --oaligned %s' % (self._getExtraPath('alignParticle%d.stk' % j))
-        #     args += ' --oavg %s' % (self._getExtraPath('alignParticle%d.mrc' % j))
-        #     self.runJob('xmipp_movie_alignment_correlation', args, numberOfMpi=1)
-        #
-        #     row = md.Row()
-        #     row.setValue(md.MDL_IMAGE, self._getExtraPath('alignParticle%d.mrc' % j))
-        #     row.addToMd(mdStackOut)
-        #
-        # mdStackOut.write(self._getExtraPath('output.xmd'), md.MD_APPEND)
-
-            args = '-i %s ' %(self._getExtraPath('movie%d.xmd'%j))
-            args += ' -o %s' % (self._getExtraPath('alignParticle%d.xmd' % j))
+            args = '-i %s ' %(self._getExtraPath('movie%d.xmd'%idx))
+            args += ' -o %s' % (self._getExtraPath('alignParticle%d.xmd' % idx))
+            args += ' --max_shift %f' % (self.maxShift)
             self.runJob('xmipp_movie_alignment_correlation', args, numberOfMpi=1)
 
             mdAlign = md.MetaData(mdAlignFn)
@@ -163,7 +138,8 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
 
             for i, row in enumerate(md.iterRows(movieParticle)):
                 args = '-i %s' % row.getValue(md.MDL_IMAGE)
-                args += ' --shift %d %d ' % (smooth_shifts_x[i], smooth_shifts_y[i])
+                #args += ' --shift %f %f ' % (smooth_shifts_x[i], smooth_shifts_y[i])
+                args += ' --shift %f %f ' % (0.0, 0.0)
                 args += ' -o %06d@%s' % (i + 1, fnStack)
                 self.runJob('xmipp_transform_geometry', args, numberOfMpi=1)
 
@@ -174,23 +150,25 @@ class XmippProtParticlePolishing(ProtAnalysis2D):
                 if i==0:
                     args = '-i %06d@%s' % (1, fnStack)
                     args += ' --plus 0'
-                    args += ' -o %06d@%s'%(j+1, fnStackOut)
+                    args += ' -o %06d@%s'%(idx, fnStackOut)
                 else:
-                    args = '-i %06d@%s'%(i+1, fnStack)
-                    args += ' --plus %06d@%s' % (j+1, fnStackOut)
-                    args += ' -o %06d@%s'%(j+1, fnStackOut)
+                    args = '-i %06d@%s'% (i+1, fnStack)
+                    args += ' --plus %06d@%s' % (idx, fnStackOut)
+                    args += ' -o %06d@%s'%(idx, fnStackOut)
                 self.runJob('xmipp_image_operate', args, numberOfMpi=1)
 
-            args = ' -i %06d@%s'%(j+1, fnStackOut)
+            args = ' -i %06d@%s'%(idx, fnStackOut)
             args += ' --divide %d' % total
-            args += ' -o %06d@%s'%(j+1, fnStackOut)
+            args += ' -o %06d@%s'%(idx, fnStackOut)
             self.runJob('xmipp_image_operate', args, numberOfMpi=1)
 
             row = md.Row()
-            row.setValue(md.MDL_IMAGE, '%06d@%s'%(j+1, fnStackOut))
+            row.setValue(md.MDL_IMAGE, '%06d@%s'%(idx, fnStackOut))
             row.addToMd(mdStackOut)
             #remove(mdAlignFn)
             #remove(fnStack)
+
+            idx += 1
 
         mdStackOut.write(fnMdOut, md.MD_APPEND)
 
