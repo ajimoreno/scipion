@@ -134,6 +134,7 @@ from protocol_write_testP import XmippProtWriteTestP
 from protocol_ctf_selection import XmippProtCTFSelection
 #AJ
 from protocol_realignment_classes import XmippProtReAlignClasses
+from protocol_volume_gain import XmippProtVolumeGain
 # Wizards
 from wizard import *
 

@@ -320,6 +320,8 @@ class XmippProtMonoRes(ProtAnalysis3D):
         return min_res, max_res
 
     def createOutputStep(self):
+        import time
+        time.sleep(20)
         volume=Volume()
         volume.setFileName(self._getFileName(OUTPUT_RESOLUTION_FILE))
         if (self.halfVolumes):

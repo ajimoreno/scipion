@@ -46,12 +46,12 @@ public:
     int Nbands;
     //Number of iterations
     int iter;
-    //To allow superposed voxel in histogram calculation
-    bool superposed;
     //Sampling rate
     double sampling;
     //To allow monores input
     bool mono;
+    //Sigma value for gaussian weighting for combining the resolution bands
+    double sigma;
 
 public:
     // Input volume

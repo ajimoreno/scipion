@@ -33,16 +33,16 @@ void ProgVolumeGain::readParams()
 {
 
     fn_vol = getParam("-i");
-    mono = checkParam("-mono");
+    mono = checkParam("--mono");
     if (mono)
-    	fn_mono = getParam("-mono");
+    	fn_mono = getParam("--mono");
     fn_mask = getParam("--mask");
     sampling = getDoubleParam("--sampling");
     boxSize = getIntParam("--boxSize");
     bandpass = checkParam("--bandpass");
     Nbands = getIntParam("--bandpass");
     iter = getIntParam("--iter");
-    superposed = checkParam("--superposed");
+    sigma = getDoubleParam("--sigma");
     if(checkParam("-o"))
     	fn_out = getParam("-o");
     else
@@ -65,14 +65,14 @@ void ProgVolumeGain::show() const
 void ProgVolumeGain::defineParams()
 {
     addParamsLine("   -i <volume>                        : Volume to match the amplitudes");
-    addParamsLine("   [-mono <monoResVolume>]            : MonoRes volume with the resolution in every voxel");
     addParamsLine("   [-o <output=\"\">]                 : Output volume filename");
-	addParamsLine("   [--sampling <s=1>]                 : Sampling rate (A/px)");
+    addParamsLine("   [--mono <monoResVolume>]           : MonoRes volume with the resolution in every voxel");
+    addParamsLine("   [--sampling <s=1>]                 : Sampling rate (A/px)");
     addParamsLine("   [--mask <mask=\"\">]               : Mask defining the macromolecule");
     addParamsLine("   [--boxSize <boxSize=5>]            : Size of the box in pixels per coordinate to calculate the histogram");
     addParamsLine("   [--bandpass <Nbands=5>]            : Carry out the matching in the whole frequency range or by bands. The integer value wiil be the number of band pass filter to apply");
     addParamsLine("   [--iter <iter=1>]                  : Number of iterations");
-    addParamsLine("   [--superposed]                     : To allow superposed voxels in the histogram matching calculation");
+    addParamsLine("   [--sigma <sigma=7>]                : Number of iterations");
 }
 
 // Produce side information ================================================
@@ -129,7 +129,6 @@ int myBinarySearch(std::vector< double > amplitudes, double value){
 				}
 				fin=posi-1;
 			}
-			//std::cout << "My binary search " << amplitudes.size() << " " << posi << " " << ini << " " << fin << " " << amplitudes[posi-1] << " " << amplitudes[posi] << " " << amplitudes[posi+1] << " " << value << std::endl;
 		}
 	}
 	else if(amplitudes.size()==1){
@@ -141,7 +140,6 @@ int myBinarySearch(std::vector< double > amplitudes, double value){
 			pos=1;
 		}
 	}
-	//std::cout << "My binary search " << amplitudes.size() << " " << posi << " " << ini << " " << fin << " " << amplitudes[posi-1] << " " << amplitudes[posi] << " " << amplitudes[posi+1] << " " << value << std::endl;
 	return pos;
 
 }
@@ -152,11 +150,6 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 {
 
 	std::cout << "Matching local histograms... " << std::endl;
-	/*MultidimArray<int> mask_aux;
-	mask_aux.resize((*pMask));
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY((*pMask)){
-		DIRECT_MULTIDIM_ELEM(mask_aux, n) = DIRECT_MULTIDIM_ELEM(*pMask, n);
-	}*/
 
 	long p=0;
 	long pp;
@@ -172,9 +165,7 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 
 	//To allow re-visiting voxels
 	MultidimArray<double> voxelCount;
-	if(superposed){
-		voxelCount.initZeros(amplitude);
-	}
+	voxelCount.initZeros(amplitude);
 
 	for(size_t k=0; k<zdim; ++k){
 		for(size_t i=0; i<ydim; ++i){
@@ -192,10 +183,8 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 								continue;
 
 							if (DIRECT_MULTIDIM_ELEM(mask, pp)==1){
-								//if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), pp)) > freq)){
 									localAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(amplitude, pp));
 									DIRECT_MULTIDIM_ELEM(mask, pp)=2;
-								//}
 							}
 
 						}
@@ -215,29 +204,8 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 									continue;
 
 								if (DIRECT_MULTIDIM_ELEM(mask, pp)==2){
-									if(superposed)
-										DIRECT_MULTIDIM_ELEM(mask, pp)=1;
-									else
-										DIRECT_MULTIDIM_ELEM(mask, pp)=0;
+									DIRECT_MULTIDIM_ELEM(mask, pp)=1;
 									double valueLocal = DIRECT_MULTIDIM_ELEM(amplitude, pp);
-									/*int position=-1;
-									for (int a=0; a<localAmplitudes.size(); a++){
-										if (localAmplitudes[a]>valueLocal){
-											position=a-1;
-											break;
-										}
-									}
-									if(position==-1)
-										position=localAmplitudes.size()-1;
-									std::cout << "Normal search: " << valueLocal << " " << localAmplitudes[position] << " " << localAmplitudes[position+1] << std::endl;
-									int posi = myBinarySearch(localAmplitudes, valueLocal);
-									if(posi!=position){
-										std::cout << "ERRORRRRR: " << posi << " " << position << std::endl;
-										exit(0);
-									}else{
-										std::cout << "MATCH: " << posi << " " << position << std::endl;
-									}
-									std::cout << "---------------------------------------------------------" << std::endl;*/
 									int position = myBinarySearch(localAmplitudes, valueLocal);
 									double probLocal = (double)position/(double)localAmplitudes.size();
 									double newAmplitude;
@@ -246,16 +214,12 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 									if (posGlobal>=lenGlobal)
 										posGlobal=lenGlobal-1;
 									newAmplitude = globalAmplitudes[posGlobal];
+									DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
+									if(!mono)
+										DIRECT_MULTIDIM_ELEM(voxelCount, pp) += 1;
+									else
+										DIRECT_MULTIDIM_ELEM(voxelCount, pp) += DIRECT_MULTIDIM_ELEM(Vweight, pp);
 
-									if(superposed){
-										DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
-										if(!mono)
-											DIRECT_MULTIDIM_ELEM(voxelCount, pp) += 1;
-										else
-											DIRECT_MULTIDIM_ELEM(voxelCount, pp) += DIRECT_MULTIDIM_ELEM(Vweight, pp);
-									}else{
-										DIRECT_MULTIDIM_ELEM(gainOut, pp) = newAmplitude;
-									}
 								}
 
 
@@ -270,19 +234,10 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 		}
 	}
 
-	if(superposed){
-		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(gainOut){
-			if (DIRECT_MULTIDIM_ELEM(voxelCount, n)!=0)
-				DIRECT_MULTIDIM_ELEM(gainOut, n) = DIRECT_MULTIDIM_ELEM(gainOut, n)/DIRECT_MULTIDIM_ELEM(voxelCount, n);
-		}
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(gainOut){
+		if (DIRECT_MULTIDIM_ELEM(voxelCount, n)!=0)
+			DIRECT_MULTIDIM_ELEM(gainOut, n) = DIRECT_MULTIDIM_ELEM(gainOut, n)/DIRECT_MULTIDIM_ELEM(voxelCount, n);
 	}
-
-	/*Image<double> saveImg;
-	FileName name;
-	name = formatString("./voxelCount%i.vol", (int)(freq*1000));
-	saveImg = voxelCount;
-	saveImg.write(name);
-	saveImg.clear();*/
 
 
 }
@@ -295,14 +250,12 @@ void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *p
 	std::vector< double > globalAmplitudes;
 	double max = V.computeMax();
 	double min = V.computeMin();
-	//std::cout << "Max = " << max << " Min = " << min << std::endl;
 
 	//Calculate sort vector of global amplitudes values to obtain the cdf
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V){
 		if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
 		{
-			//if(!mono || (mono && (sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n)) > freq))
-				globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
+			globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
 		}
 	}
 	std::sort(globalAmplitudes.begin(), globalAmplitudes.end());
@@ -350,7 +303,7 @@ void ProgVolumeGain::run()
 
 			for (int i=0;i<filter_num;i++)
 			{
-				if(j>0 && i==0){ //Iteraciones mayor que 1, primera banda de freq, rehacer la fft con el volumen de salida de la iteracion anterior
+				if(j>0 && i==0){ //Iterations greater than 1, first freq band, redo fft with the output volume of the previous iteration
 					name.compose(nameRoot, j, "vol");
 					V.read(name);
 					V().setXmippOrigin();
@@ -390,16 +343,11 @@ void ProgVolumeGain::run()
 				}
 				transformer_inv.inverseFourierTransform(fftVaux, V());
 
-//				name = formatString("./beforeMono_filterVol%i_iter%i.vol", i, j);
-//				saveImg = V();
-//				saveImg.write(name);
-//				saveImg.clear();
 
 				//To apply monores pushing down the frequencies above the maximum resolution (minimum value)
 				double eval, weightGauss;
 				double mean = sampling/w1;
-				double sigma=7.0;
-				//double weightAux = (1/(sigma*sqrt(2*PI)));
+
 				double aux = 1.0/(2*sigma*sigma);
 				if(mono){
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
@@ -409,20 +357,12 @@ void ProgVolumeGain::run()
 							if(sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n) < w1){
 								eval = DIRECT_MULTIDIM_ELEM(monoRes(), n);
 								weightGauss = (exp(-(eval-mean)*(eval-mean)*aux));
-								//std::cout << "AAAAA mean " << mean << " eval " << eval << " weightGauss " << weightGauss << std::endl;
 								DIRECT_MULTIDIM_ELEM(Vweight, n)=weightGauss;
-								//std::cout << "1 DIRECT_MULTIDIM_ELEM(V, n) " << DIRECT_MULTIDIM_ELEM(V(), n) << std::endl;
 								DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) * weightGauss;
-								//std::cout << "2 DIRECT_MULTIDIM_ELEM(V, n) " << DIRECT_MULTIDIM_ELEM(V(), n) << std::endl;
 							}
 						}
 					}
 				}
-
-//				name = formatString("./filterVol%i_iter%i.vol", i, j);
-//				saveImg = V();
-//				saveImg.write(name);
-//				saveImg.clear();
 
 				//Calling to processing function
 				processing(V(), pMask, w1);
@@ -438,11 +378,6 @@ void ProgVolumeGain::run()
 							DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(V(), n);
 					}
 				}
-
-//				name = formatString("./filterVolProcess%i_iter%i_50.vol", i, j);
-//				saveImg = V();
-//				saveImg.write(name);
-//				saveImg.clear();
 
 			}
 
