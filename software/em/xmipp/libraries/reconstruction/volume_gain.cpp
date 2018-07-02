@@ -343,6 +343,13 @@ void ProgVolumeGain::run()
 				}
 				transformer_inv.inverseFourierTransform(fftVaux, V());
 
+//				Image<double> myImg;
+//				myImg = V;
+//				FileName fn2;
+//				fn2.compose("./band", i+1, "vol");
+//				myImg.write(fn2);
+//				myImg.clear();
+
 
 				//To apply monores pushing down the frequencies above the maximum resolution (minimum value)
 				double eval, weightGauss;
@@ -366,6 +373,13 @@ void ProgVolumeGain::run()
 
 				//Calling to processing function
 				processing(V(), pMask, w1);
+
+//				Image<double> myImg2;
+//				myImg2 = V;
+//				FileName fn;
+//				fn.compose("./bandProcessed", i+1, "vol");
+//				myImg2.write(fn);
+//				myImg2.clear();
 
 				if (i==0){
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){

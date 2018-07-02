@@ -55,8 +55,11 @@ class XmippProtVolumeGain(ProtAnalysis3D):
                       help='The mask determines which points are specimen'
                       ' and which are not.')
 
+        form.addParam('useMonores', BooleanParam, default=True, label='Use MonoRes?',
+                      help='Select if to use monoRes volume to perform histogram matching')
+
         form.addParam('monores', PointerParam, pointerClass='Volume',
-                      label="MonoRes volume",
+                      label="MonoRes volume", condition="useMonores==True",
                       help='The monoRes volume to perform histogram matching by '
                            'frequency bands taking into account only pixel '
                            'values relevant to each band.')
@@ -74,7 +77,8 @@ class XmippProtVolumeGain(ProtAnalysis3D):
                            'complete frequencies.')
 
         form.addParam('nBands', IntParam, default=5, label='Number of bands',
-                      expertLevel=LEVEL_ADVANCED, condition='bandPass==True',
+                      expertLevel=LEVEL_ADVANCED,
+                      condition='bandPass==True or useMonores==True',
                       help='Choose the number of bands in the band pass filter.')
 
         form.addParam('iter', IntParam, default=1, label='Iterations',
@@ -99,7 +103,8 @@ class XmippProtVolumeGain(ProtAnalysis3D):
         """
         self.volFn = self.inputVolume.get().getFileName()
         self.maskFn = self.mask.get().getFileName()
-        self.monores = self.monores.get().getFileName()
+        if self.useMonores == True:
+            self.monores = self.monores.get().getFileName()
         self.monoInputVol = self._getExtraPath('monogenicVol.vol')
         self.outputVol = self._getExtraPath('outputVol.vol')
 
@@ -112,10 +117,12 @@ class XmippProtVolumeGain(ProtAnalysis3D):
 
         params = ' -i %s ' % self.monoInputVol
         params += ' --mask %s ' % self.maskFn
-        params += ' --mono %s ' % self.monores
-        if self.bandPass == True:
+        if self.useMonores==True:
+            params += ' --mono %s ' % self.monores
+        if self.bandPass == True or self.useMonores==True:
             params += ' --bandpass %i'% self.nBands.get()
         params += ' --sampling %f ' % self.inputVolume.get().getSamplingRate()
+        params += ' --sigma %f ' % self.sigma.get()
         params += ' -o %s ' %self.outputVol
         self.runJob('xmipp_volume_gain', params)
 
