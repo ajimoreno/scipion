@@ -85,7 +85,7 @@ class XmippProtVolumeGain(ProtAnalysis3D):
                       expertLevel=LEVEL_ADVANCED,
                       help='Number of iterations.')
 
-        form.addParam('sigma', FloatParam, default=7.0, label='Sigma',
+        form.addParam('sigma', FloatParam, default=20.0, label='Sigma',
                       expertLevel=LEVEL_ADVANCED,
                       help='Sigma value for gaussian weighting for combining the resolution bands.')
 
@@ -110,12 +110,12 @@ class XmippProtVolumeGain(ProtAnalysis3D):
 
     def volumeGainStep(self):
 
-        params = ' -i %s' % self.volFn
-        params += ' -o %s' % self.monoInputVol
-        params += ' --monogenic'
-        self.runJob('xmipp_transform_filter', params)
+        # params = ' -i %s' % self.volFn
+        # params += ' -o %s' % self.monoInputVol
+        # params += ' --monogenic'
+        # self.runJob('xmipp_transform_filter', params)
 
-        params = ' -i %s ' % self.monoInputVol
+        params = ' -i %s ' % self.volFn #self.monoInputVol
         params += ' --mask %s ' % self.maskFn
         if self.useMonores==True:
             params += ' --mono %s ' % self.monores
