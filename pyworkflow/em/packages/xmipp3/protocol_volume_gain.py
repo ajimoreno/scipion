@@ -123,6 +123,7 @@ class XmippProtVolumeGain(ProtAnalysis3D):
             params += ' --bandpass %i'% self.nBands.get()
         params += ' --sampling %f ' % self.inputVolume.get().getSamplingRate()
         params += ' --sigma %f ' % self.sigma.get()
+        params += ' --boxSize %f ' % self.boxSize.get()
         params += ' -o %s ' %self.outputVol
         self.runJob('xmipp_volume_gain', params)
 
