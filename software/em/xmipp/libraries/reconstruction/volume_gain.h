@@ -56,11 +56,14 @@ public:
 public:
     // Input volume
     Image<double> V, monoRes, Vini;
-    Image<int> mask;
+    Image<double> mask; //int
     MultidimArray<double> iu, VRiesz, Vweight;
     MultidimArray< std::complex<double> > fftV, fftVRiesz, fftVRiesz_aux;
     Matrix1D<double> freq_fourier;
     FourierTransformer transformer_inv;
+
+	MultidimArray<double> newMask; //int
+	std::vector< double > totalAmplitudes;
 
 
 
@@ -80,10 +83,10 @@ public:
     /** Run */
     void run();
 
-    void matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-    		std::vector< double > cdfGlobal, MultidimArray<int> mask, int boxSize, double freq);
+    void matchingLocalHistogram(const MultidimArray<double> &amplitude, MultidimArray<double> &gainOut,
+    		const std::vector< double > &cdfGlobal, const MultidimArray<double> &mask, int boxSize, double freq); //int (mask)
 
-    void processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq);
+    void processing (MultidimArray<double> &V, MultidimArray<double> *pMask, double freq); //int (mask)
 
 };
 //@}

@@ -90,18 +90,35 @@ void ProgVolumeGain::produce_side_info()
     }
 
 	// Prepare mask
-	MultidimArray<int> &pMask=mask();
+	MultidimArray<double> &pMask=mask(); //int
+
+	newMask.initZeros(pMask);
+
 	size_t R = (V().xdim)/2.0;
 
 	FOR_ALL_ELEMENTS_IN_ARRAY3D(pMask)
 	{
 		if (i*i+j*j+k*k > R*R)
-			A3D_ELEM(pMask, k, i, j) = 0;
+			A3D_ELEM(pMask, k, i, j) = 0.0;
+
+		if(A3D_ELEM(pMask, k, i, j)>0.01)
+			A3D_ELEM(newMask, k, i, j)=1.0;
 	}
+
+
+	/*//Calculate sort vector of total amplitudes values to obtain the cdf
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
+		if (DIRECT_MULTIDIM_ELEM(mask(), n)>0.01)//==1)
+		{
+			totalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+		}
+	}
+	std::sort(totalAmplitudes.begin(), totalAmplitudes.end());*/
+
 }
 
 
-int myBinarySearch(std::vector< double > amplitudes, double value){
+int myBinarySearch(std::vector< double > &amplitudes, double value){
 
 	int posi;
 	int ini=0;
@@ -145,8 +162,8 @@ int myBinarySearch(std::vector< double > amplitudes, double value){
 }
 
 
-void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, MultidimArray<double> &gainOut,
-		std::vector< double > globalAmplitudes, MultidimArray<int> mask, int boxSize, double freq)
+void ProgVolumeGain::matchingLocalHistogram(const MultidimArray<double> &amplitude, MultidimArray<double> &gainOut,
+		const std::vector< double > &globalAmplitudes, const MultidimArray<double> &mask, int boxSize, double freq)
 {
 
 	std::cout << "Matching local histograms... " << std::endl;
@@ -171,7 +188,7 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 		for(size_t i=0; i<ydim; ++i){
 			for(size_t j=0; j<xdim; ++j){
 				p = j+(i*xdim)+(k*xdim*ydim);
-				if (DIRECT_MULTIDIM_ELEM(mask, p)==0)
+				if (DIRECT_MULTIDIM_ELEM(mask, p)<0.01)
 					continue;
 
 				for (int kk=-boxSize; kk<=boxSize; kk++){
@@ -182,9 +199,9 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 							if(pp<0 || pp>total)
 								continue;
 
-							if (DIRECT_MULTIDIM_ELEM(mask, pp)==1){
+							if (DIRECT_MULTIDIM_ELEM(mask, pp)>0.01){//==1){
 									localAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(amplitude, pp));
-									DIRECT_MULTIDIM_ELEM(mask, pp)=2;
+									DIRECT_MULTIDIM_ELEM(newMask, pp)=2.0; //mask
 							}
 
 						}
@@ -203,8 +220,9 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 								if(pp<0 || pp>total)
 									continue;
 
-								if (DIRECT_MULTIDIM_ELEM(mask, pp)==2){
-									DIRECT_MULTIDIM_ELEM(mask, pp)=1;
+								if (DIRECT_MULTIDIM_ELEM(newMask, pp)==2.0){ //mask
+									//DIRECT_MULTIDIM_ELEM(mask, pp)=1;
+									DIRECT_MULTIDIM_ELEM(newMask, pp)=1.0;
 									double valueLocal = DIRECT_MULTIDIM_ELEM(amplitude, pp);
 									int position = myBinarySearch(localAmplitudes, valueLocal);
 									double probLocal = (double)position/(double)localAmplitudes.size();
@@ -214,7 +232,8 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 									if (posGlobal>=lenGlobal)
 										posGlobal=lenGlobal-1;
 									newAmplitude = globalAmplitudes[posGlobal];
-									DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
+									//DIRECT_MULTIDIM_ELEM(gainOut, pp) += newAmplitude;
+									DIRECT_MULTIDIM_ELEM(gainOut, pp) += (newAmplitude*DIRECT_MULTIDIM_ELEM(mask, pp)) + (valueLocal*(1-DIRECT_MULTIDIM_ELEM(mask, pp)));
 									if(!mono)
 										DIRECT_MULTIDIM_ELEM(voxelCount, pp) += 1;
 									else
@@ -243,7 +262,7 @@ void ProgVolumeGain::matchingLocalHistogram(MultidimArray<double> amplitude, Mul
 }
 
 
-void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *pMask, double freq)
+void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<double> *pMask, double freq)
 {
 
 	MultidimArray<double> gainOut;
@@ -253,7 +272,7 @@ void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *p
 
 	//Calculate sort vector of global amplitudes values to obtain the cdf
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V){
-		if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+		if (DIRECT_MULTIDIM_ELEM(mask(), n)>0.01)//==1)
 		{
 			globalAmplitudes.push_back(DIRECT_MULTIDIM_ELEM(V, n));
 		}
@@ -263,8 +282,22 @@ void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *p
 	//Matching histograms
 	gainOut.initZeros(V);
 	matchingLocalHistogram(V, gainOut, globalAmplitudes, *pMask, boxSize, freq);
+	//gainOut*=V.computeMax()/gainOut.computeMax();
 
+	//Saving the output in V
 	V=gainOut;
+	/*Vini.read(fn_vol);
+    Vini().setXmippOrigin();
+	double ampLevel, prob;
+	int position;
+	const MultidimArray<double> &mVini=Vini();
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mVini){
+		ampLevel = DIRECT_MULTIDIM_ELEM(mVini, n);
+		position = myBinarySearch(totalAmplitudes, ampLevel);
+		//std::cout << ampLevel << " " << position << " " << totalAmplitudes[position-1] << " " << totalAmplitudes[position] << " " << totalAmplitudes[position+1] << std::endl;
+		prob = (double)position/(double)totalAmplitudes.size();
+		DIRECT_MULTIDIM_ELEM(V, n) = (prob*DIRECT_MULTIDIM_ELEM(V, n)) + ((1-prob)*DIRECT_MULTIDIM_ELEM(gainOut, n));
+	}*/
 
 	//End
 	globalAmplitudes.clear();
@@ -275,7 +308,7 @@ void ProgVolumeGain::processing (MultidimArray<double> &V, MultidimArray<int> *p
 void ProgVolumeGain::run()
 {
 
-	MultidimArray<int> *pMask;
+	MultidimArray<double> *pMask; //int
 	produce_side_info();
 	pMask = &(mask());
 
@@ -359,7 +392,7 @@ void ProgVolumeGain::run()
 				if(mono){
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
 						DIRECT_MULTIDIM_ELEM(Vweight, n)=1.0;
-						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+						if (DIRECT_MULTIDIM_ELEM(mask(), n)>0.01)//==1)
 						{
 							if(sampling/DIRECT_MULTIDIM_ELEM(monoRes(), n) < w1){
 								eval = DIRECT_MULTIDIM_ELEM(monoRes(), n);
@@ -383,12 +416,12 @@ void ProgVolumeGain::run()
 
 				if (i==0){
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
-						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+						if (DIRECT_MULTIDIM_ELEM(mask(), n)>0.01)//==1)
 							DIRECT_MULTIDIM_ELEM(Vout, n) = DIRECT_MULTIDIM_ELEM(V(), n);
 					}
 				}else{
 					FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
-						if (DIRECT_MULTIDIM_ELEM(mask(), n)==1)
+						if (DIRECT_MULTIDIM_ELEM(mask(), n)>0.01)//==1)
 							DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(V(), n);
 					}
 				}
@@ -410,7 +443,7 @@ void ProgVolumeGain::run()
 	    Vini().setXmippOrigin();
 
 		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Vout){
-			if (DIRECT_MULTIDIM_ELEM(mask(), n)==0)
+			if (DIRECT_MULTIDIM_ELEM(mask(), n)<0.01)
 				DIRECT_MULTIDIM_ELEM(Vout, n) += DIRECT_MULTIDIM_ELEM(Vini(), n);
 		}
 
@@ -440,7 +473,7 @@ void ProgVolumeGain::run()
 		Vini().setXmippOrigin();
 
 		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V()){
-			if (DIRECT_MULTIDIM_ELEM(mask(), n)==0)
+			if (DIRECT_MULTIDIM_ELEM(mask(), n)<0.01)
 				DIRECT_MULTIDIM_ELEM(V(), n) += DIRECT_MULTIDIM_ELEM(Vini(), n);
 		}
 
