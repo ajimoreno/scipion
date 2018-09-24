@@ -224,7 +224,8 @@ void ProgVolumeGain::matchingLocalHistogram(const MultidimArray<double> &amplitu
 									//DIRECT_MULTIDIM_ELEM(mask, pp)=1;
 									DIRECT_MULTIDIM_ELEM(newMask, pp)=1.0;
 									double valueLocal = DIRECT_MULTIDIM_ELEM(amplitude, pp);
-									int position = myBinarySearch(localAmplitudes, valueLocal);
+									//int position = myBinarySearch(localAmplitudes, valueLocal);
+									int position = std::lower_bound(localAmplitudes.begin(), localAmplitudes.end(), valueLocal) - localAmplitudes.begin();
 									double probLocal = (double)position/(double)localAmplitudes.size();
 									double newAmplitude;
 									int posGlobal = (int)(probLocal*lenGlobal);

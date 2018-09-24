@@ -58,6 +58,8 @@ from viewer_volume_strain import XmippVolumeStrainViewer
 from viewer_reconstruct_highres import XmippReconstructHighResViewer
 from viewer_solid_angles import SolidAnglesViewer
 from viewer_extract_unit_cell import viewerXmippProtExtractUnit
+#AJ
+from viewer_ROC_pdb_volume import XmippProtROCPdbVolumeViewer
 
 from plotter import XmippPlotter
 
@@ -135,6 +137,7 @@ from protocol_ctf_selection import XmippProtCTFSelection
 #AJ
 from protocol_realignment_classes import XmippProtReAlignClasses
 from protocol_volume_gain import XmippProtVolumeGain
+from protocol_ROC_pdb_volume import XmippProtROCPdbVolume
 # Wizards
 from wizard import *
 

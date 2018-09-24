@@ -29,6 +29,7 @@ from pyworkflow.protocol.params import (PointerParam, IntParam,
                                         BooleanParam, FloatParam, LEVEL_ADVANCED)
 from pyworkflow.em.protocol.protocol_3d import ProtAnalysis3D
 from pyworkflow.em.data import Volume
+from pyworkflow.utils.path import cleanPath
 
 
 class XmippProtVolumeGain(ProtAnalysis3D):
@@ -63,9 +64,6 @@ class XmippProtVolumeGain(ProtAnalysis3D):
                       help='The monoRes volume to perform histogram matching by '
                            'frequency bands taking into account only pixel '
                            'values relevant to each band.')
-        #
-        # form.addParam('sampling', FloatParam, label='Sampling rate (A)',
-        #               important = True, help='Provide the sampling rate in A of the volume')
 
         form.addParam('boxSize', IntParam, label='Box size (px)',
                       expertLevel=LEVEL_ADVANCED, default=5,
@@ -85,16 +83,17 @@ class XmippProtVolumeGain(ProtAnalysis3D):
                       expertLevel=LEVEL_ADVANCED,
                       help='Number of iterations.')
 
-        form.addParam('sigma', FloatParam, default=20.0, label='Sigma',
+        form.addParam('sigma', FloatParam, default=20.0, label='Sigma weight',
                       expertLevel=LEVEL_ADVANCED,
                       help='Sigma value for gaussian weighting for combining the resolution bands.')
+
 
 
     # --------------------------- INSERT steps functions --------------------------------------------
 
     def _insertAllSteps(self):
             # Convert input into xmipp Metadata format
-        self._insertFunctionStep('convertInputStep', )
+        self._insertFunctionStep('convertInputStep')
         self._insertFunctionStep('volumeGainStep')
         self._insertFunctionStep('createOutputStep')
 
@@ -115,6 +114,7 @@ class XmippProtVolumeGain(ProtAnalysis3D):
         # params += ' --monogenic'
         # self.runJob('xmipp_transform_filter', params)
 
+        fnOutGain = self._getExtraPath('outVolGain.vol')
         params = ' -i %s ' % self.volFn #self.monoInputVol
         params += ' --mask %s ' % self.maskFn
         if self.useMonores==True:
@@ -124,12 +124,49 @@ class XmippProtVolumeGain(ProtAnalysis3D):
         params += ' --sampling %f ' % self.inputVolume.get().getSamplingRate()
         params += ' --sigma %f ' % self.sigma.get()
         params += ' --boxSize %f ' % self.boxSize.get()
-        params += ' -o %s ' %self.outputVol
+        params += ' -o %s ' % fnOutGain
         self.runJob('xmipp_volume_gain', params)
 
+        fnOriginalMono = self._getExtraPath('originalMono.vol')
+        params = ' -i %s -o %s --monogenic' % (self.volFn, fnOriginalMono)
+        self.runJob('xmipp_transform_filter', params)
+
+        fnOutGainMono = self._getExtraPath('outGainMono.vol')
+        params = ' -i %s -o %s --monogenic' % (fnOutGain, fnOutGainMono)
+        self.runJob('xmipp_transform_filter', params)
+
+        fnOriginalMonoLpf = self._getExtraPath('originalMono_LPF.vol')
+        params = ' -i %s -o %s --fourier real_gaussian 5' % \
+                 (fnOriginalMono, fnOriginalMonoLpf)
+        self.runJob('xmipp_transform_filter', params)
+
+        fnOutGainMonoLpf = self._getExtraPath('outGainMono_LPF.vol')
+        params = ' -i %s -o %s --fourier real_gaussian 5' % \
+                 (fnOutGainMono, fnOutGainMonoLpf)
+        self.runJob('xmipp_transform_filter', params)
+
+        fnGain = self._getExtraPath('volGain.vol')
+        params = ' -i %s --divide %s -o %s' % (fnOutGainMonoLpf,
+                                               fnOriginalMonoLpf, fnGain)
+        self.runJob('xmipp_image_operate', params)
+
+        # fnGainLpf = self._getExtraPath('volGain_LPF.vol')
+        # params = ' -i %s -o %s --fourier real_gaussian 5' % (fnGain, fnGainLpf)
+        # self.runJob('xmipp_transform_filter', params)
+
+        params = ' -i %s --mult %s -o %s' % (self.volFn,
+                                             fnGain, self.outputVol)
+        self.runJob('xmipp_image_operate', params)
+
     def createOutputStep(self):
-        # import time
-        # time.sleep(20)
+
+        # cleanPath(fnOriginalMono)
+        # cleanPath(fnOutGainMono)
+        # cleanPath(fnOriginalMonoLpf)
+        # cleanPath(fnOutGainMonoLpf)
+        # cleanPath(fnGain)
+        # cleanPath(fnGainLpf)
+
         volume=Volume()
         volume.setFileName(self._getExtraPath('outputVol.vol'))
         volume.setSamplingRate(self.inputVolume.get().getSamplingRate())
