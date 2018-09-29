@@ -92,7 +92,7 @@ class XmippProtROCPdbVolume(ProtAnalysis3D):
 
         fnPdbVolThres = self._getExtraPath('pdbVolumeThres.vol')
         params = ' -i %s -o %s --select above %f --substitute value 1' % \
-                 (fnPdbVol, fnPdbVolThres, 0.0)
+                 (fnPdbVol, fnPdbVolThres, 0.02)
         self.runJob('xmipp_transform_threshold', params)
 
         volPdb = Image(fnPdbVolThres)
